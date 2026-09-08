@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-black: #000000;
+    --cyber-red: #FF003C;
+    --red-violet: #E056FD;
+  }
+
+  body {
+    background-color: #000000;
+    color: #EDEDED;
+    font-family: 'JetBrains Mono', monospace;
+    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FF003C;
+}
+
+/* Scanlines Effect */
+.scanlines-overlay {
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.4) 50%
+  ), linear-gradient(
+    90deg,
+    rgba(255, 0, 60, 0.03),
+    rgba(0, 255, 128, 0.01),
+    rgba(224, 86, 253, 0.03)
+  );
+  background-size: 100% 3px, 6px 100%;
+  pointer-events: none;
+}
+
+/* Cyber CRT Flicker */
+@keyframes crtFlicker {
+  0% { opacity: 0.99; }
+  50% { opacity: 0.96; }
+  100% { opacity: 1; }
+}
+
+.crt-flicker {
+  animation: crtFlicker 0.15s infinite;
+}
+
+/* Cyber Glows */
+.glow-cyber-red {
+  box-shadow: 0 0 15px rgba(255, 0, 60, 0.4);
+}
+.glow-red-violet {
+  box-shadow: 0 0 15px rgba(224, 86, 253, 0.4);
+}
+.border-glow-red {
+  border-color: #FF003C;
+  box-shadow: inset 0 0 8px rgba(255, 0, 60, 0.2), 0 0 8px rgba(255, 0, 60, 0.2);
+}

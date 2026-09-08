@@ -1,0 +1,6 @@
+{
+  "name": "PDF to Google Docs Converter",
+  "description": "Directly converts PDF documents into formatted Google Docs with preserved layout, typography, and tables.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
