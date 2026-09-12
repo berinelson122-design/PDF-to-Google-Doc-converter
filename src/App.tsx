@@ -7,7 +7,6 @@ import { ComparisonView } from './components/UI/ComparisonView.tsx';
 import { ControlSettings } from './components/UI/ControlSettings.tsx';
 import { DocxExportModal } from './components/UI/DocxExportModal.tsx';
 import { PricingModal } from './components/UI/PricingModal.tsx';
-import { VirtualJoystick } from './components/UI/VirtualJoystick.tsx';
 import { ConversionHistory } from './components/UI/ConversionHistory.tsx';
 import { useUniversalInput } from './hooks/useUniversalInput.ts';
 import { useGameStore } from './store/useGameStore.ts';
@@ -44,7 +43,7 @@ export default function App() {
                   Convert PDFs into Google Docs with Preserved Tables, Typography &amp; Layouts
                 </h2>
                 <p className="text-xs text-neutral-400 leading-relaxed">
-                  Unlike Google&apos;s native converter which flattens PDFs into plain unformatted text blobs with broken margins, our Gemini 3.8 Flash pipeline reads visual layout natively, extracts complex multi-column tables, heading weights, and provides 1-click rich clipboard transfer to <code className="text-[#E056FD]">docs.google.com</code>.
+                  Unlike Google&apos;s native converter which flattens PDFs into plain unformatted text blobs with broken margins, our Neural Document Reconstruction pipeline reads visual layout natively, extracts complex multi-column tables, heading weights, and provides 1-click rich clipboard transfer to <code className="text-[#E056FD]">docs.google.com</code>.
                 </p>
               </div>
 
@@ -102,7 +101,6 @@ export default function App() {
       <ControlSettings />
       <DocxExportModal />
       <PricingModal />
-      <VirtualJoystick />
 
       {/* Bottom Right Required Cyber Watermark */}
       <Watermark />

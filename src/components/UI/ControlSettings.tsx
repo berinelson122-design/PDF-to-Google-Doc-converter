@@ -82,28 +82,39 @@ export const ControlSettings: React.FC = () => {
           </div>
         )}
 
+        // ===== START NEW CODE: MOBILE TOUCHSCREEN CALIBRATION (NO JOYSTICK) =====
         {config.device === 'mobile' && (
-          <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-4">
-            <div className="flex items-center gap-2 text-[#E056FD] text-xs font-bold uppercase">
-              <Smartphone className="w-4 h-4" /> Mobile Touch Calibration
-            </div>
-            <div>
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="text-neutral-400">Virtual Joystick Opacity</span>
-                <span className="text-[#E056FD] font-mono">{Math.round(config.virtualJoystickOpacity * 100)}%</span>
+          <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[#E056FD] text-xs font-bold uppercase">
+                <Smartphone className="w-4 h-4" /> Direct Touchscreen Calibration
               </div>
-              <input
-                type="range"
-                min="0.2"
-                max="1.0"
-                step="0.05"
-                value={config.virtualJoystickOpacity}
-                onChange={(e) => setVirtualJoystickOpacity(parseFloat(e.target.value))}
-                className="w-full accent-[#E056FD] bg-neutral-800"
-              />
+              <span className="text-[10px] px-2 py-0.5 rounded border border-emerald-500/60 text-emerald-400 bg-emerald-950/40 font-mono">
+                TOUCHSCREEN ACTIVE
+              </span>
+            </div>
+
+            <div className="text-xs text-neutral-400 leading-relaxed font-mono space-y-2">
+              <div className="flex items-center justify-between py-1 border-b border-neutral-900">
+                <span>Native Swipe &amp; Pan</span>
+                <span className="text-emerald-400 font-bold">ENABLED (DIRECT)</span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-neutral-900">
+                <span>Multi-Touch Zoom</span>
+                <span className="text-emerald-400 font-bold">100% RESPONSIVE</span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-neutral-900">
+                <span>Touch Target Sizes</span>
+                <span className="text-[#E056FD] font-bold">44PX+ ACCESSIBLE</span>
+              </div>
+              <div className="flex items-center justify-between py-1">
+                <span>Virtual Joystick Overlay</span>
+                <span className="text-neutral-500 font-bold">DISABLED (NATIVE TOUCH ONLY)</span>
+              </div>
             </div>
           </div>
         )}
+        // ===== END NEW CODE: MOBILE TOUCHSCREEN CALIBRATION (NO JOYSTICK) =====
 
         {config.device === 'console' && (
           <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-4">

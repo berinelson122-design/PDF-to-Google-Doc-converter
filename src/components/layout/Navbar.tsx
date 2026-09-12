@@ -47,7 +47,7 @@ export const Navbar: React.FC = () => {
               PDF <span className="text-[#FF003C]">➔</span> GOOGLE DOCS
             </h1>
             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#FF003C]/10 text-[#FF003C] border border-[#FF003C]/30 font-semibold">
-              V3.8 FLASH
+              NEURAL V3
             </span>
           </div>
           <p className="font-mono text-[10px] text-neutral-400 hidden sm:block">
@@ -58,7 +58,7 @@ export const Navbar: React.FC = () => {
 
       {/* Center Engine Telemetry */}
       <div className="hidden lg:flex items-center gap-3 font-mono text-xs">
-        <CyberBadge label="AI: GEMINI 3.8 FLASH" variant="red" pulse />
+        <CyberBadge label="AI: NEURAL ENGINE V3" variant="red" pulse />
         <CyberBadge label="LAYOUT: TABLES &amp; FONTS PRESERVED" variant="purple" />
         <CyberBadge 
           label={`TIER: ${subscription.tier.toUpperCase()} (${subscription.conversionsToday}/${subscription.tier === 'pro' ? '∞' : subscription.dailyFreeLimit})`} 

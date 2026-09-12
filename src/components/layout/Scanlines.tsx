@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
+// ===== START NEW CODE: HARDENED SCANLINE CANVAS SYSTEM =====
 export const Scanlines: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -14,28 +15,56 @@ export const Scanlines: React.FC = () => {
     let scanY = 0;
 
     const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const w = window.innerWidth || document.documentElement?.clientWidth || 1920;
+      const h = window.innerHeight || document.documentElement?.clientHeight || 1080;
+      canvas.width = Math.max(1, w);
+      canvas.height = Math.max(1, h);
     };
 
     window.addEventListener('resize', resize);
     resize();
 
     const render = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      try {
+        const width = canvas.width > 0 ? canvas.width : (window.innerWidth || 1920);
+        const height = canvas.height > 0 ? canvas.height : (window.innerHeight || 1080);
 
-      // Procedural sweep line
-      scanY = (scanY + 1.2) % canvas.height;
-      const gradient = ctx.createLinearGradient(0, scanY - 30, 0, scanY);
-      gradient.addColorStop(0, 'rgba(255, 0, 60, 0)');
-      gradient.addColorStop(1, 'rgba(255, 0, 60, 0.04)');
+        if (width <= 0 || height <= 0 || !Number.isFinite(width) || !Number.isFinite(height)) {
+          animationFrameId = requestAnimationFrame(render);
+          return;
+        }
 
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, scanY - 30, canvas.width, 30);
+        ctx.clearRect(0, 0, width, height);
 
-      // Fine scanline beam
-      ctx.fillStyle = 'rgba(224, 86, 253, 0.08)';
-      ctx.fillRect(0, scanY, canvas.width, 1);
+        // Procedural sweep line with strict numerical sanitization
+        if (!Number.isFinite(scanY) || scanY < 0) {
+          scanY = 0;
+        }
+        scanY = (scanY + 1.2) % height;
+        if (!Number.isFinite(scanY)) {
+          scanY = 0;
+        }
+
+        const yTop = Math.max(0, scanY - 30);
+        const yBottom = Math.max(yTop + 0.1, scanY);
+
+        if (Number.isFinite(yTop) && Number.isFinite(yBottom) && yBottom > yTop) {
+          const gradient = ctx.createLinearGradient(0, yTop, 0, yBottom);
+          gradient.addColorStop(0, 'rgba(255, 0, 60, 0)');
+          gradient.addColorStop(1, 'rgba(255, 0, 60, 0.04)');
+
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, yTop, width, Math.max(1, yBottom - yTop));
+        }
+
+        // Fine scanline beam
+        if (Number.isFinite(scanY)) {
+          ctx.fillStyle = 'rgba(224, 86, 253, 0.08)';
+          ctx.fillRect(0, scanY, width, 1);
+        }
+      } catch {
+        // Defensive suppression for headless/iframe contexts
+      }
 
       animationFrameId = requestAnimationFrame(render);
     };
@@ -59,3 +88,4 @@ export const Scanlines: React.FC = () => {
     </>
   );
 };
+// ===== END NEW CODE: HARDENED SCANLINE CANVAS SYSTEM =====

@@ -189,24 +189,60 @@ STRICT REQUIREMENTS:
   }
 });
 
-async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+let viteMiddleware: express.RequestHandler | null = null;
+let viteReadyPromise: Promise<void> | null = null;
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+if (process.env.NODE_ENV !== 'production') {
+  viteReadyPromise = (async () => {
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      viteMiddleware = vite.middlewares;
+    } catch (err) {
+      console.error('Failed to initialize Vite dev server:', err);
+    }
+  })();
+
+  app.use(async (req, res, next) => {
+    if (!viteMiddleware && viteReadyPromise) {
+      await viteReadyPromise;
+    }
+    if (viteMiddleware) {
+      return viteMiddleware(req, res, next);
+    }
+    next();
+  });
+} else {
+  const distPath = path.join(process.cwd(), 'dist');
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
-startServer();
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
+
+server.on('error', (err: any) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} in use, retrying in 500ms...`);
+    setTimeout(() => {
+      server.close();
+      server.listen(PORT, '0.0.0.0');
+    }, 500);
+  } else {
+    console.error('Server error:', err);
+  }
+});
+
+const shutdown = () => {
+  server.close(() => {
+    process.exit(0);
+  });
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+

@@ -26,16 +26,29 @@ class CyberAudioSynthesizer {
     }
   }
 
+// ===== START NEW CODE: HARDENED AUDIO SYNTHESIZER =====
   public setMuted(muted: boolean): void {
-    this.isMuted = muted;
-    if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(muted ? 0 : 0.15, this.ctx.currentTime);
+    try {
+      this.isMuted = muted;
+      if (this.masterGain && this.ctx) {
+        const t = Number.isFinite(this.ctx.currentTime) ? this.ctx.currentTime : 0;
+        this.masterGain.gain.setValueAtTime(muted ? 0 : 0.15, t);
+      }
+    } catch {
+      // Graceful fallback
     }
   }
 
   public setVolume(volume: number): void {
-    if (this.masterGain && this.ctx && !this.isMuted) {
-      this.masterGain.gain.setValueAtTime(Math.max(0, Math.min(1, volume * 0.2)), this.ctx.currentTime);
+    try {
+      if (!Number.isFinite(volume)) return;
+      if (this.masterGain && this.ctx && !this.isMuted) {
+        const safeVol = Math.max(0, Math.min(1, volume * 0.2));
+        const t = Number.isFinite(this.ctx.currentTime) ? this.ctx.currentTime : 0;
+        this.masterGain.gain.setValueAtTime(safeVol, t);
+      }
+    } catch {
+      // Graceful fallback
     }
   }
 
@@ -45,25 +58,31 @@ class CyberAudioSynthesizer {
     if (!this.ctx || !this.masterGain) return;
 
     try {
+      const now = Number.isFinite(this.ctx.currentTime) ? this.ctx.currentTime : 0;
+      const freq = Number.isFinite(config.freq) && config.freq > 0 ? config.freq : 440;
+      const duration = Number.isFinite(config.duration) && config.duration > 0 ? config.duration : 0.05;
+      const rawGain = Number.isFinite(config.gain) ? (config.gain as number) : 0.3;
+      const toneGain = Math.max(0.0001, Math.min(1.0, rawGain));
+
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
       
       osc.type = config.type || 'sine';
-      osc.frequency.setValueAtTime(config.freq, this.ctx.currentTime);
+      osc.frequency.setValueAtTime(freq, now);
 
-      const toneGain = config.gain ?? 0.3;
-      gain.gain.setValueAtTime(toneGain, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + config.duration);
+      gain.gain.setValueAtTime(toneGain, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
       osc.connect(gain);
       gain.connect(this.masterGain);
 
-      osc.start();
-      osc.stop(this.ctx.currentTime + config.duration);
+      osc.start(now);
+      osc.stop(now + duration);
     } catch {
       // AudioContext policy suppression fallback
     }
   }
+// ===== END NEW CODE: HARDENED AUDIO SYNTHESIZER =====
 
   public playCyberClick(): void {
     this.playTone({ freq: 880, type: 'triangle', duration: 0.04, gain: 0.2 });

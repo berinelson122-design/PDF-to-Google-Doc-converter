@@ -142,7 +142,7 @@ export const ComparisonView: React.FC = () => {
                         </span>
                       </div>
                       <p className="font-mono text-xs text-neutral-400">
-                        Visual geometry parsed through Gemini 3.8 Flash multimodal reasoning. All tables, cells, and inline styles are formatted directly for Google Docs copy/paste compatibility.
+                        Visual geometry parsed through deep neural multimodal reasoning. All tables, cells, and inline styles are formatted directly for Google Docs copy/paste compatibility.
                       </p>
                     </div>
 

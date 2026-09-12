@@ -45,15 +45,35 @@ export interface PdfDocument {
   previewUrl?: string;
 }
 
+export interface QueueItem {
+  id: string;
+  name: string;
+  size: number;
+  base64Data: string;
+  pageCount: number;
+  status: 'queued' | 'processing' | 'completed' | 'error';
+  progress: number;
+  statusMessage?: string;
+  errorMessage?: string;
+  result?: ConversionResult;
+  addedAt: number;
+  samplePrecomputed?: string;
+}
+
 export interface ConversionHistoryItem {
   id: string;
   title: string;
+  originalFileName?: string;
+  fileSize?: number;
   timestamp: number;
   pageCount: number;
   tablesCount: number;
   headingsCount: number;
   htmlContent: string;
+  markdownContent?: string;
+  fidelityScore?: number;
   status: 'success' | 'failed';
+  base64Data?: string;
 }
 
 export interface DeviceControlConfig {

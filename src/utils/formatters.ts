@@ -1,9 +1,9 @@
 export function formatBytes(bytes: number, decimals: number = 2): string {
-  if (bytes === 0) return '0 B';
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(sizes.length - 1, Math.max(0, Math.floor(Math.log(bytes) / Math.log(k))));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
@@ -142,3 +142,87 @@ export function downloadHtmlFile(htmlContent: string, title: string): void {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// ===== START NEW CODE: CSV EXPORT UTILITY FOR CONVERTED DOCUMENT FILENAMES & METADATA =====
+export interface CsvExportableHistoryItem {
+  id: string;
+  title: string;
+  originalFileName?: string;
+  fileSize?: number;
+  timestamp: number;
+  pageCount: number;
+  tablesCount: number;
+  headingsCount: number;
+  fidelityScore?: number;
+  status: string;
+}
+
+/**
+ * Exports a list of converted document records to a CSV file.
+ * Formats columns: Filename, Document Title, File Size, Page Count, Tables Count, Headings, Fidelity, Date, Status.
+ * Includes UTF-8 BOM so Microsoft Excel, Apple Numbers, and Google Sheets open it with perfect encoding.
+ */
+export function exportHistoryToCsv(
+  items: CsvExportableHistoryItem[],
+  customFilename?: string
+): void {
+  if (!items || items.length === 0) return;
+
+  const escapeCsvCell = (value: string | number | undefined | null): string => {
+    if (value === null || value === undefined) return '""';
+    const str = String(value).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  const headers = [
+    'Index',
+    'Document Filename',
+    'Document Title',
+    'File Size (Bytes)',
+    'File Size (Formatted)',
+    'Page Count',
+    'Tables Detected',
+    'Headings Count',
+    'Fidelity Score (%)',
+    'Conversion Timestamp (ISO)',
+    'Formatted Date & Time',
+    'Status',
+  ];
+
+  const rows = items.map((item, idx) => {
+    const fileName = item.originalFileName || `${item.title}.pdf`;
+    const formattedSize = item.fileSize ? formatBytes(item.fileSize) : 'N/A';
+    const isoDate = new Date(item.timestamp).toISOString();
+    const formattedDate = formatTimestamp(item.timestamp);
+    const fidelity = item.fidelityScore !== undefined ? `${item.fidelityScore}%` : 'N/A';
+
+    return [
+      escapeCsvCell(idx + 1),
+      escapeCsvCell(fileName),
+      escapeCsvCell(item.title),
+      escapeCsvCell(item.fileSize ?? 0),
+      escapeCsvCell(formattedSize),
+      escapeCsvCell(item.pageCount),
+      escapeCsvCell(item.tablesCount),
+      escapeCsvCell(item.headingsCount),
+      escapeCsvCell(fidelity),
+      escapeCsvCell(isoDate),
+      escapeCsvCell(formattedDate),
+      escapeCsvCell(item.status),
+    ].join(',');
+  });
+
+  // UTF-8 BOM (\uFEFF) ensures proper character encoding
+  const csvContent = '\uFEFF' + [headers.map(escapeCsvCell).join(','), ...rows].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  a.download = customFilename || `converted_documents_history_${dateStamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+// ===== END NEW CODE: CSV EXPORT UTILITY FOR CONVERTED DOCUMENT FILENAMES & METADATA =====

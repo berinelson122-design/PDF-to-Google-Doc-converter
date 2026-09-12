@@ -32,7 +32,7 @@ export const PricingModal: React.FC = () => {
             UPGRADE FOR HIGH-THROUGHPUT PROCESSING
           </h2>
           <p className="text-xs text-neutral-400 font-mono">
-            Direct PDF to Google Docs engine powered by Gemini 3.8 Flash multimodal reasoning.
+            Direct PDF to Google Docs engine powered by advanced neural multimodal document reasoning.
           </p>
         </div>
 

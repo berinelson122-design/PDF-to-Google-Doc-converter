@@ -29,7 +29,7 @@ export const useInputStore = create<InputStoreState>((set) => ({
     soundEnabled: true,
     soundVolume: 0.8,
     hapticFeedback: true,
-    virtualJoystickEnabled: true,
+    virtualJoystickEnabled: false,
     virtualJoystickOpacity: 0.7,
     gamepadDeadzone: 0.15,
     gamepadSensitivity: 1.0,
