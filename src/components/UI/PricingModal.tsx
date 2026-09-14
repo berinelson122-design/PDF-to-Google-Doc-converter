@@ -6,15 +6,17 @@ import { CyberButton } from '../common/CyberButton.tsx';
 import { cyberAudio } from '../../utils/audioSynth.ts';
 
 export const PricingModal: React.FC = () => {
-  const { 
-    isPricingModalOpen, 
-    openPricingModal, 
-    subscription, 
-    upgradeToPro 
+  const {
+    isPricingModalOpen,
+    openPricingModal,
+    subscription,
+    upgradeToPro
   } = useGameStore();
 
   const handleUpgrade = () => {
     cyberAudio.playSuccessChime();
+    // Open your live Stripe checkout link in a new tab
+    window.open("https://buy.stripe.com/6oUdR92RXclZ8xEabz9ws00", "_blank");
     upgradeToPro();
   };
 
@@ -94,8 +96,7 @@ export const PricingModal: React.FC = () => {
               </div>
 
               <div className="font-mono text-2xl font-bold text-white mb-4">
-                $4.99 <span className="text-xs text-neutral-500 font-normal">/ month</span>
-                <span className="text-[11px] text-[#E056FD] ml-2 block font-normal">or $29 / year</span>
+                $29.00 <span className="text-xs text-neutral-500 font-normal">/ year</span>
               </div>
 
               <ul className="space-y-2.5 text-xs font-mono text-neutral-200 mb-6">
@@ -105,7 +106,7 @@ export const PricingModal: React.FC = () => {
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>OCR for Complex Handwritten Notes</span>
+                  <span>OCR for Complex Documents</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -125,7 +126,7 @@ export const PricingModal: React.FC = () => {
               glow
               className="w-full"
             >
-              {subscription.hasProLicense ? 'PRO ACTIVE' : 'UPGRADE TO PRO ($4.99)'}
+              {subscription.hasProLicense ? 'PRO ACTIVE' : 'UPGRADE TO PRO ($29/YR)'}
             </CyberButton>
           </div>
         </div>
