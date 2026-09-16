@@ -11,6 +11,7 @@ import {
 
 // ===== START NEW CODE: DOCUMENT & CONVERSION STORE WITH BULK QUEUE & LOCAL PERSISTENCE =====
 const HISTORY_STORAGE_KEY = 'cyber_pdf_conversion_history_v1';
+const SUBSCRIPTION_STORAGE_KEY = 'cyber_pdf_subscription_v1';
 
 function loadInitialHistory(): ConversionHistoryItem[] {
   try {
@@ -36,6 +37,40 @@ function saveHistoryToStorage(history: ConversionHistoryItem[]) {
     }
   } catch (e) {
     console.error('Failed to save history to localStorage:', e);
+  }
+}
+
+function loadInitialSubscription(): UserSubscription {
+  const defaultSub: UserSubscription = {
+    tier: 'free',
+    conversionsToday: 0,
+    dailyFreeLimit: 10,
+    lastResetDate: new Date().toISOString().split('T')[0],
+    hasProLicense: false,
+  };
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = localStorage.getItem(SUBSCRIPTION_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed) {
+          return { ...defaultSub, ...parsed };
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load subscription from localStorage:', e);
+  }
+  return defaultSub;
+}
+
+function saveSubscriptionToStorage(sub: UserSubscription) {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(sub));
+    }
+  } catch (e) {
+    console.error('Failed to save subscription to localStorage:', e);
   }
 }
 
@@ -110,13 +145,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   
   viewMode: 'split',
   history: loadInitialHistory(),
-  subscription: {
-    tier: 'free',
-    conversionsToday: 0,
-    dailyFreeLimit: 10,
-    lastResetDate: new Date().toISOString().split('T')[0],
-    hasProLicense: false,
-  },
+  subscription: loadInitialSubscription(),
   exportConfig: DEFAULT_EXPORT_CONFIG,
   googleAccessToken: '',
   isExportModalOpen: false,
@@ -245,25 +274,29 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       return false; // Limit exceeded
     }
 
-    set(() => ({
-      subscription: {
-        ...subscription,
-        conversionsToday: conversionsToday + 1,
-        lastResetDate: today,
-      },
-    }));
+    const newSub: UserSubscription = {
+      ...subscription,
+      conversionsToday: conversionsToday + 1,
+      lastResetDate: today,
+    };
+    saveSubscriptionToStorage(newSub);
+    set(() => ({ subscription: newSub }));
     return true;
   },
 
-  upgradeToPro: () => set((state) => ({
-    subscription: {
-      ...state.subscription,
+  upgradeToPro: () => {
+    const newSub: UserSubscription = {
+      ...get().subscription,
       tier: 'pro',
       hasProLicense: true,
-    },
-    isPricingModalOpen: false,
-    statusMessage: 'UPLINK_UPGRADED // PRO_TIER_ACTIVE',
-  })),
+    };
+    saveSubscriptionToStorage(newSub);
+    set(() => ({
+      subscription: newSub,
+      isPricingModalOpen: false,
+      statusMessage: 'UPLINK_UPGRADED // PRO_TIER_ACTIVE',
+    }));
+  },
 
   resetConversion: () => set(() => ({
     currentPdf: null,

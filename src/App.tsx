@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Navbar } from './components/layout/Navbar.tsx';
 import { Scanlines } from './components/layout/Scanlines.tsx';
 import { Watermark } from './components/layout/Watermark.tsx';
@@ -16,7 +16,19 @@ import { CyberButton } from './components/common/CyberButton.tsx';
 // ===== START NEW CODE: MAIN APP BRAIN & CYBERPUNK ARCHITECTURE =====
 export default function App() {
   useUniversalInput();
-  const { result, currentPdf, resetConversion } = useGameStore();
+  const { result, currentPdf, resetConversion, upgradeToPro } = useGameStore();
+
+  useEffect(() => {
+    // Check for Stripe success URL param
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('success') === 'true') {
+      upgradeToPro();
+      
+      // Clean up the URL to remove the query string without refreshing
+      const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+      window.history.replaceState({ path: newUrl }, '', newUrl);
+    }
+  }, [upgradeToPro]);
 
   return (
     <div className="min-h-screen bg-black text-[#EDEDED] flex flex-col relative font-mono selection:bg-[#FF003C] selection:text-white pb-16">

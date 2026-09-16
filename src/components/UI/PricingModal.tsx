@@ -16,8 +16,8 @@ export const PricingModal: React.FC = () => {
   const handleUpgrade = () => {
     cyberAudio.playSuccessChime();
     // Open your live Stripe checkout link in a new tab
+    // The actual upgrade will happen when Stripe redirects back to the app with ?success=true
     window.open("https://buy.stripe.com/6oUdR92RXclZ8xEabz9ws00", "_blank");
-    upgradeToPro();
   };
 
   return (
