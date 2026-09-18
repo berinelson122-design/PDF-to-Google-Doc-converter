@@ -8,7 +8,8 @@ import {
   Sparkles, 
   CheckCircle2, 
   Cpu,
-  Zap
+  Zap,
+  FolderOpen
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { LiveDocPreview } from './LiveDocPreview.tsx';
@@ -22,7 +23,10 @@ export const ComparisonView: React.FC = () => {
     result, 
     viewMode, 
     setViewMode, 
-    editedHtml 
+    editedHtml,
+    savedConversions,
+    activeSavedConversionId,
+    loadSavedConversion
   } = useGameStore();
 
   const [highlightTables, setHighlightTables] = useState(false);
@@ -113,6 +117,39 @@ export const ComparisonView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Document Switcher Tab Bar if multiple saved documents exist in persistence layer */}
+      {savedConversions.length > 1 && (
+        <div className="flex items-center gap-2 overflow-x-auto px-3 py-2 bg-[#0A0A0C] border border-neutral-800/80 rounded text-xs font-mono">
+          <span className="text-[10px] text-neutral-400 uppercase tracking-wider shrink-0 flex items-center gap-1 font-bold">
+            <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />
+            REVISIT SAVED ({savedConversions.length}):
+          </span>
+          <div className="flex items-center gap-1.5">
+            {savedConversions.map((savedDoc, idx) => {
+              const isSelected = (activeSavedConversionId === savedDoc.id) || (result?.documentTitle === savedDoc.title);
+              return (
+                <button
+                  key={savedDoc.id}
+                  id={`btn-quickswitch-${savedDoc.id}`}
+                  onClick={() => {
+                    cyberAudio.playCyberClick();
+                    loadSavedConversion(savedDoc);
+                  }}
+                  className={`px-2.5 py-1 rounded text-[11px] truncate max-w-[220px] shrink-0 border transition-all ${
+                    isSelected
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 font-bold shadow-[0_0_8px_rgba(16,185,129,0.2)]'
+                      : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700'
+                  }`}
+                  title={`${savedDoc.title} (${savedDoc.originalFileName})`}
+                >
+                  #{idx + 1}: {savedDoc.title}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Main Viewport Container */}
       <div className="flex-1 min-h-[650px] relative">

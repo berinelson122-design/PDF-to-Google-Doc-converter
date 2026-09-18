@@ -6,12 +6,64 @@ import {
   ConversionHistoryItem, 
   UserSubscription,
   GoogleDocsExportConfig,
-  QueueItem
+  QueueItem,
+  SavedConversionRecord
 } from '../types/index.ts';
+import {
+  loadSavedConversions,
+  saveRecentConversion,
+  updateRecentConversionHtml,
+  removeSavedConversion,
+  clearAllSavedConversions,
+  getLastActiveConversionId,
+  setLastActiveConversionId,
+} from '../utils/recentConversionsStorage.ts';
 
 // ===== START NEW CODE: DOCUMENT & CONVERSION STORE WITH BULK QUEUE & LOCAL PERSISTENCE =====
 const HISTORY_STORAGE_KEY = 'cyber_pdf_conversion_history_v1';
 const SUBSCRIPTION_STORAGE_KEY = 'cyber_pdf_subscription_v1';
+
+function getInitialSavedConversions(): SavedConversionRecord[] {
+  const existing = loadSavedConversions();
+  if (existing.length > 0) {
+    return existing;
+  }
+  // Backfill from existing history if present
+  const history = loadInitialHistory();
+  if (history.length > 0) {
+    const seeded: SavedConversionRecord[] = history.slice(0, 5).map((item) => ({
+      id: item.id,
+      title: item.title,
+      originalFileName: item.originalFileName || `${item.title}.pdf`,
+      timestamp: item.timestamp,
+      editedHtml: item.htmlContent,
+      fileSize: item.fileSize,
+      pageCount: item.pageCount,
+      result: {
+        documentTitle: item.title,
+        htmlContent: item.htmlContent,
+        markdownContent: item.markdownContent || `# ${item.title}`,
+        stats: {
+          pages: item.pageCount,
+          wordCount: item.htmlContent.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length,
+          characterCount: item.htmlContent.length,
+          fidelityScore: item.fidelityScore || 98,
+        },
+        detectedElements: {
+          headingsCount: item.headingsCount,
+          tablesCount: item.tablesCount,
+          bulletListsCount: 2,
+          fontsDetected: ['Arial', 'Roboto'],
+          colorPalette: ['#111827', '#059669'],
+        },
+        conversionTimeMs: 400,
+      },
+    }));
+    seeded.forEach((r) => saveRecentConversion(r));
+    return loadSavedConversions();
+  }
+  return [];
+}
 
 function loadInitialHistory(): ConversionHistoryItem[] {
   try {
@@ -92,6 +144,10 @@ export interface GameStoreState {
   isSettingsOpen: boolean;
   isPricingModalOpen: boolean;
 
+  // Local Storage Persistence Layer for Last 5 Conversions
+  savedConversions: SavedConversionRecord[];
+  activeSavedConversionId: string | null;
+
   // Queue & Bulk Processing State
   queue: QueueItem[];
   isBulkProcessing: boolean;
@@ -115,6 +171,12 @@ export interface GameStoreState {
   upgradeToPro: () => void;
   resetConversion: () => void;
   loadHistoryItem: (item: ConversionHistoryItem) => void;
+
+  // Last 5 Conversions Persistence Actions
+  loadSavedConversion: (item: SavedConversionRecord) => void;
+  deleteSavedConversion: (id: string) => void;
+  clearSavedConversions: () => void;
+  restoreLastConversion: () => void;
 
   // Queue Actions
   addToQueue: (items: QueueItem[]) => void;
@@ -152,6 +214,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   isSettingsOpen: false,
   isPricingModalOpen: false,
 
+  // Local Storage Persistence Layer for Last 5 Conversions
+  savedConversions: getInitialSavedConversions(),
+  activeSavedConversionId: getLastActiveConversionId(),
+
   // Queue State
   queue: [],
   isBulkProcessing: false,
@@ -172,17 +238,60 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     errorMessage: status === 'error' ? (message || 'CONVERSION_PIPELINE_FAULT') : null,
   })),
 
-  setResult: (result) => set(() => ({
-    result,
-    editedHtml: result.htmlContent,
-    status: 'completed',
-    progressPercent: 100,
-    statusMessage: 'CONVERSION_SUCCESSFUL // DOCUMENT_READY',
-  })),
+  setResult: (result) => {
+    const activePdf = get().currentPdf;
+    const docId = activePdf?.id || 'doc_' + Date.now();
+    const fileName = activePdf?.name || `${result.documentTitle}.pdf`;
 
-  setEditedHtml: (html) => set(() => ({
-    editedHtml: html,
-  })),
+    // Automatically persist to the last 5 conversion results layer
+    const savedRecord: SavedConversionRecord = {
+      id: docId,
+      title: result.documentTitle,
+      originalFileName: fileName,
+      timestamp: Date.now(),
+      result,
+      editedHtml: result.htmlContent,
+      fileSize: activePdf?.size || 150000,
+      pageCount: result.stats.pages || 1,
+      pdfMetadata: activePdf ? {
+        id: activePdf.id,
+        name: activePdf.name,
+        size: activePdf.size,
+        pageCount: activePdf.pageCount,
+        uploadedAt: activePdf.uploadedAt,
+        base64Data: activePdf.base64Data,
+      } : undefined,
+    };
+
+    const updatedSaved = saveRecentConversion(savedRecord);
+
+    set(() => ({
+      result,
+      editedHtml: result.htmlContent,
+      status: 'completed',
+      progressPercent: 100,
+      statusMessage: 'CONVERSION_SUCCESSFUL // DOCUMENT_READY',
+      savedConversions: updatedSaved,
+      activeSavedConversionId: docId,
+      exportConfig: {
+        ...get().exportConfig,
+        docTitle: result.documentTitle,
+      },
+    }));
+  },
+
+  setEditedHtml: (html) => {
+    const activeId = get().activeSavedConversionId;
+    if (activeId) {
+      const updatedSaved = updateRecentConversionHtml(activeId, html);
+      set(() => ({
+        editedHtml: html,
+        savedConversions: updatedSaved,
+      }));
+    } else {
+      set(() => ({ editedHtml: html }));
+    }
+  },
 
   setViewMode: (mode) => set(() => ({
     viewMode: mode,
@@ -193,7 +302,51 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const filtered = current.filter((h) => h.id !== item.id);
     const updated = [item, ...filtered].slice(0, 50);
     saveHistoryToStorage(updated);
-    set(() => ({ history: updated }));
+
+    // Automatically persist to the last 5 conversion results layer
+    const savedRecord: SavedConversionRecord = {
+      id: item.id,
+      title: item.title,
+      originalFileName: item.originalFileName || `${item.title}.pdf`,
+      timestamp: item.timestamp,
+      editedHtml: item.htmlContent,
+      fileSize: item.fileSize,
+      pageCount: item.pageCount,
+      result: {
+        documentTitle: item.title,
+        htmlContent: item.htmlContent,
+        markdownContent: item.markdownContent || `# ${item.title}`,
+        stats: {
+          pages: item.pageCount,
+          wordCount: item.htmlContent.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length,
+          characterCount: item.htmlContent.length,
+          fidelityScore: item.fidelityScore || 98,
+        },
+        detectedElements: {
+          headingsCount: item.headingsCount,
+          tablesCount: item.tablesCount,
+          bulletListsCount: 2,
+          fontsDetected: ['Arial', 'JetBrains Mono', 'Roboto'],
+          colorPalette: ['#111827', '#059669', '#1a73e8'],
+        },
+        conversionTimeMs: 400,
+      },
+      pdfMetadata: item.base64Data ? {
+        id: item.id,
+        name: item.originalFileName || `${item.title}.pdf`,
+        size: item.fileSize || 150000,
+        pageCount: item.pageCount,
+        uploadedAt: item.timestamp,
+        base64Data: item.base64Data,
+      } : undefined,
+    };
+    const updatedSaved = saveRecentConversion(savedRecord);
+
+    set(() => ({
+      history: updated,
+      savedConversions: updatedSaved,
+      activeSavedConversionId: item.id,
+    }));
   },
 
   deleteHistoryItem: (id: string) => {
@@ -298,52 +451,117 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     }));
   },
 
-  resetConversion: () => set(() => ({
-    currentPdf: null,
-    status: 'idle',
-    progressPercent: 0,
-    statusMessage: 'SYSTEM_STANDBY',
-    errorMessage: null,
-    result: null,
-    editedHtml: '',
-  })),
+  resetConversion: () => {
+    setLastActiveConversionId(null);
+    set(() => ({
+      currentPdf: null,
+      status: 'idle',
+      progressPercent: 0,
+      statusMessage: 'SYSTEM_STANDBY',
+      errorMessage: null,
+      result: null,
+      editedHtml: '',
+      activeSavedConversionId: null,
+    }));
+  },
 
-  loadHistoryItem: (item) => set(() => ({
-    editedHtml: item.htmlContent,
-    status: 'completed',
-    statusMessage: `HISTORIC_RECORD_LOADED: ${item.title}`,
-    result: {
-      documentTitle: item.title,
-      htmlContent: item.htmlContent,
-      markdownContent: item.markdownContent || `# ${item.title}`,
-      stats: {
-        pages: item.pageCount,
-        wordCount: item.htmlContent.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length,
-        characterCount: item.htmlContent.length,
-        fidelityScore: item.fidelityScore || 98,
+  loadSavedConversion: (item) => {
+    setLastActiveConversionId(item.id);
+    set(() => ({
+      activeSavedConversionId: item.id,
+      editedHtml: item.editedHtml || item.result.htmlContent,
+      status: 'completed',
+      progressPercent: 100,
+      statusMessage: `PERSISTENT_CONVERSION_RESTORED: ${item.title}`,
+      result: item.result,
+      currentPdf: item.pdfMetadata ? {
+        id: item.pdfMetadata.id,
+        name: item.pdfMetadata.name,
+        size: item.pdfMetadata.size,
+        base64Data: item.pdfMetadata.base64Data || '',
+        pageCount: item.pdfMetadata.pageCount || item.pageCount || 1,
+        uploadedAt: item.pdfMetadata.uploadedAt || item.timestamp,
+      } : (item.originalFileName ? {
+        id: item.id,
+        name: item.originalFileName,
+        size: item.fileSize || 150000,
+        base64Data: '',
+        pageCount: item.pageCount || 1,
+        uploadedAt: item.timestamp,
+      } : null),
+      exportConfig: {
+        ...DEFAULT_EXPORT_CONFIG,
+        docTitle: item.title,
       },
-      detectedElements: {
-        headingsCount: item.headingsCount,
-        tablesCount: item.tablesCount,
-        bulletListsCount: 2,
-        fontsDetected: ['Arial', 'JetBrains Mono', 'Roboto'],
-        colorPalette: ['#111827', '#059669', '#1a73e8'],
+    }));
+  },
+
+  deleteSavedConversion: (id) => {
+    const updated = removeSavedConversion(id);
+    set((state) => ({
+      savedConversions: updated,
+      activeSavedConversionId: state.activeSavedConversionId === id ? null : state.activeSavedConversionId,
+      ...(state.activeSavedConversionId === id ? { result: null, currentPdf: null, editedHtml: '', status: 'idle' as const } : {}),
+    }));
+  },
+
+  clearSavedConversions: () => {
+    clearAllSavedConversions();
+    set(() => ({
+      savedConversions: [],
+      activeSavedConversionId: null,
+    }));
+  },
+
+  restoreLastConversion: () => {
+    const saved = get().savedConversions;
+    if (saved.length > 0) {
+      const activeId = getLastActiveConversionId();
+      const target = (activeId && saved.find((s) => s.id === activeId)) || saved[0];
+      get().loadSavedConversion(target);
+    }
+  },
+
+  loadHistoryItem: (item) => {
+    setLastActiveConversionId(item.id);
+    set(() => ({
+      activeSavedConversionId: item.id,
+      editedHtml: item.htmlContent,
+      status: 'completed',
+      statusMessage: `HISTORIC_RECORD_LOADED: ${item.title}`,
+      result: {
+        documentTitle: item.title,
+        htmlContent: item.htmlContent,
+        markdownContent: item.markdownContent || `# ${item.title}`,
+        stats: {
+          pages: item.pageCount,
+          wordCount: item.htmlContent.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length,
+          characterCount: item.htmlContent.length,
+          fidelityScore: item.fidelityScore || 98,
+        },
+        detectedElements: {
+          headingsCount: item.headingsCount,
+          tablesCount: item.tablesCount,
+          bulletListsCount: 2,
+          fontsDetected: ['Arial', 'JetBrains Mono', 'Roboto'],
+          colorPalette: ['#111827', '#059669', '#1a73e8'],
+        },
+        conversionTimeMs: 450,
       },
-      conversionTimeMs: 450,
-    },
-    currentPdf: item.base64Data ? {
-      id: item.id,
-      name: item.originalFileName || item.title + '.pdf',
-      size: item.fileSize || 150000,
-      base64Data: item.base64Data,
-      pageCount: item.pageCount,
-      uploadedAt: item.timestamp,
-    } : null,
-    exportConfig: {
-      ...DEFAULT_EXPORT_CONFIG,
-      docTitle: item.title,
-    },
-  })),
+      currentPdf: item.base64Data ? {
+        id: item.id,
+        name: item.originalFileName || item.title + '.pdf',
+        size: item.fileSize || 150000,
+        base64Data: item.base64Data,
+        pageCount: item.pageCount,
+        uploadedAt: item.timestamp,
+      } : null,
+      exportConfig: {
+        ...DEFAULT_EXPORT_CONFIG,
+        docTitle: item.title,
+      },
+    }));
+  },
 }));
 // ===== END NEW CODE: DOCUMENT & CONVERSION STORE WITH BULK QUEUE & LOCAL PERSISTENCE =====
 

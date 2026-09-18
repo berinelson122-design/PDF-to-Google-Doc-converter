@@ -104,3 +104,22 @@ export interface GoogleDocsExportConfig {
   targetFontFamily: string;
   fontSizeScale: number;
 }
+
+export interface SavedConversionRecord {
+  id: string;
+  title: string;
+  originalFileName: string;
+  timestamp: number;
+  result: ConversionResult;
+  editedHtml: string;
+  fileSize?: number;
+  pageCount?: number;
+  pdfMetadata?: {
+    id: string;
+    name: string;
+    size: number;
+    pageCount: number;
+    uploadedAt: number;
+    base64Data?: string;
+  };
+}

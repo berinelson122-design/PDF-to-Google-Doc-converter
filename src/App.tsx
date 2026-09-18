@@ -8,15 +8,23 @@ import { ControlSettings } from './components/UI/ControlSettings.tsx';
 import { DocxExportModal } from './components/UI/DocxExportModal.tsx';
 import { PricingModal } from './components/UI/PricingModal.tsx';
 import { ConversionHistory } from './components/UI/ConversionHistory.tsx';
+import { RecentConversionsBar } from './components/UI/RecentConversionsBar.tsx';
 import { useUniversalInput } from './hooks/useUniversalInput.ts';
 import { useGameStore } from './store/useGameStore.ts';
-import { FileText, ArrowRight, CheckCircle2, Zap } from 'lucide-react';
+import { FileText, ArrowRight, CheckCircle2, Zap, RotateCcw } from 'lucide-react';
 import { CyberButton } from './components/common/CyberButton.tsx';
 
 // ===== START NEW CODE: MAIN APP BRAIN & CYBERPUNK ARCHITECTURE =====
 export default function App() {
   useUniversalInput();
-  const { result, currentPdf, resetConversion, upgradeToPro } = useGameStore();
+  const { 
+    result, 
+    currentPdf, 
+    resetConversion, 
+    upgradeToPro, 
+    savedConversions, 
+    restoreLastConversion 
+  } = useGameStore();
 
   useEffect(() => {
     // Check for Stripe success URL param
@@ -40,6 +48,38 @@ export default function App() {
 
       {/* Main Tactical Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 flex flex-col space-y-6 relative z-10">
+        {/* Quick Session Resume Banner if page was refreshed and previous conversions exist */}
+        {!result && savedConversions.length > 0 && (
+          <div 
+            id="session-restore-banner"
+            className="p-3 md:p-3.5 bg-emerald-950/25 border border-emerald-500/40 rounded flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-[0_0_15px_rgba(16,185,129,0.1)] relative overflow-hidden"
+          >
+            <div className="flex items-center gap-2.5 text-xs">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+              <div>
+                <div className="font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <span>PREVIOUS SESSION DETECTED IN LOCAL STORAGE</span>
+                  <span className="text-[10px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded">
+                    {savedConversions.length} SAVED
+                  </span>
+                </div>
+                <div className="text-neutral-400 text-[11px] truncate max-w-lg mt-0.5">
+                  Latest: <span className="text-[#E056FD] font-semibold">{savedConversions[0].title}</span> ({savedConversions[0].originalFileName})
+                </div>
+              </div>
+            </div>
+
+            <button
+              id="btn-restore-last-conversion"
+              onClick={restoreLastConversion}
+              className="px-3.5 py-1.5 text-xs font-bold font-mono bg-emerald-500 text-black hover:bg-emerald-400 rounded transition-all shadow-[0_0_12px_rgba(16,185,129,0.4)] shrink-0 flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>RELOAD PREVIOUS DOCUMENT</span>
+            </button>
+          </div>
+        )}
+
         {/* Value Proposition & Technical Blueprint Banner (When no result yet) */}
         {!result && (
           <div className="p-4 md:p-6 border border-[#FF003C]/40 bg-[#08080A] rounded shadow-[0_0_25px_rgba(255,0,60,0.1)] relative overflow-hidden">
@@ -104,6 +144,9 @@ export default function App() {
           /* Live Comparison & Google Doc Formatted Editor */
           <ComparisonView />
         )}
+
+        {/* Local Storage Persistence Layer for Last 5 Conversions */}
+        <RecentConversionsBar />
 
         {/* Telemetry Logs & Conversion History */}
         <ConversionHistory />
