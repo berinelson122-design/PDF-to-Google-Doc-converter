@@ -22,6 +22,22 @@ import {
 // ===== START NEW CODE: DOCUMENT & CONVERSION STORE WITH BULK QUEUE & LOCAL PERSISTENCE =====
 const HISTORY_STORAGE_KEY = 'cyber_pdf_conversion_history_v1';
 const SUBSCRIPTION_STORAGE_KEY = 'cyber_pdf_subscription_v1';
+export const AUTOSAVE_SETTINGS_KEY = 'cyber_pdf_autosave_setting_v1';
+export const DRAFT_STORAGE_KEY = 'cyber_pdf_draft_autosave_v1';
+
+function loadInitialAutoSave(): boolean {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const val = localStorage.getItem(AUTOSAVE_SETTINGS_KEY);
+      if (val !== null) {
+        return val === 'true';
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load autosave setting:', e);
+  }
+  return true; // Default auto-save enabled
+}
 
 function getInitialSavedConversions(): SavedConversionRecord[] {
   const existing = loadSavedConversions();
@@ -135,7 +151,7 @@ export interface GameStoreState {
   result: ConversionResult | null;
   editedHtml: string;
   
-  viewMode: 'split' | 'doc_only' | 'pdf_only' | 'code';
+  viewMode: 'split' | 'doc_only' | 'pdf_only' | 'code' | 'readability';
   history: ConversionHistoryItem[];
   subscription: UserSubscription;
   exportConfig: GoogleDocsExportConfig;
@@ -148,6 +164,10 @@ export interface GameStoreState {
   savedConversions: SavedConversionRecord[];
   activeSavedConversionId: string | null;
 
+  // Draft Auto-Save Configuration
+  isAutoSaveEnabled: boolean;
+  lastAutoSavedAt: number | null;
+
   // Queue & Bulk Processing State
   queue: QueueItem[];
   isBulkProcessing: boolean;
@@ -158,7 +178,7 @@ export interface GameStoreState {
   setStatus: (status: ConversionStatus, message?: string, progress?: number) => void;
   setResult: (result: ConversionResult) => void;
   setEditedHtml: (html: string) => void;
-  setViewMode: (mode: 'split' | 'doc_only' | 'pdf_only' | 'code') => void;
+  setViewMode: (mode: 'split' | 'doc_only' | 'pdf_only' | 'code' | 'readability') => void;
   addToHistory: (item: ConversionHistoryItem) => void;
   deleteHistoryItem: (id: string) => void;
   clearHistory: () => void;
@@ -171,6 +191,14 @@ export interface GameStoreState {
   upgradeToPro: () => void;
   resetConversion: () => void;
   loadHistoryItem: (item: ConversionHistoryItem) => void;
+
+  // Auto-Save Actions
+  toggleAutoSaveDraft: () => void;
+  setAutoSaveDraft: (enabled: boolean) => void;
+  saveDraftToStorage: () => void;
+
+  // Bulk Local Storage Purge Action
+  clearAllSessionData: () => void;
 
   // Last 5 Conversions Persistence Actions
   loadSavedConversion: (item: SavedConversionRecord) => void;
@@ -217,6 +245,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   // Local Storage Persistence Layer for Last 5 Conversions
   savedConversions: getInitialSavedConversions(),
   activeSavedConversionId: getLastActiveConversionId(),
+
+  // Draft Auto-Save Configuration
+  isAutoSaveEnabled: loadInitialAutoSave(),
+  lastAutoSavedAt: null,
 
   // Queue State
   queue: [],
@@ -562,6 +594,87 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       },
     }));
   },
+
+  // ===== START NEW CODE: DRAFT AUTO-SAVE TO LOCAL STORAGE ACTIONS =====
+  toggleAutoSaveDraft: () => {
+    const nextState = !get().isAutoSaveEnabled;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(AUTOSAVE_SETTINGS_KEY, String(nextState));
+      }
+    } catch (e) {
+      console.error('Failed to save autosave setting:', e);
+    }
+    set(() => ({ isAutoSaveEnabled: nextState }));
+    if (nextState) {
+      get().saveDraftToStorage();
+    }
+  },
+
+  setAutoSaveDraft: (enabled: boolean) => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(AUTOSAVE_SETTINGS_KEY, String(enabled));
+      }
+    } catch (e) {
+      console.error('Failed to set autosave setting:', e);
+    }
+    set(() => ({ isAutoSaveEnabled: enabled }));
+    if (enabled) {
+      get().saveDraftToStorage();
+    }
+  },
+
+  saveDraftToStorage: () => {
+    const { editedHtml, result, currentPdf, activeSavedConversionId, isAutoSaveEnabled } = get();
+    if (!isAutoSaveEnabled || !editedHtml) return;
+
+    try {
+      const draftPayload = {
+        html: editedHtml,
+        title: result?.documentTitle || currentPdf?.name || 'Untitled Reconstructed Document',
+        timestamp: Date.now(),
+        id: activeSavedConversionId || ('draft_' + Date.now()),
+      };
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftPayload));
+      }
+      if (activeSavedConversionId) {
+        updateRecentConversionHtml(activeSavedConversionId, editedHtml);
+      }
+      set(() => ({ lastAutoSavedAt: Date.now() }));
+    } catch (err) {
+      console.warn('[AutoSave] Quota or storage write warning:', err);
+    }
+  },
+  // ===== END NEW CODE: DRAFT AUTO-SAVE TO LOCAL STORAGE ACTIONS =====
+
+  // ===== START NEW CODE: BULK CLEAR ALL SAVED SESSION DATA (SINGLE CLICK) =====
+  clearAllSessionData: () => {
+    saveHistoryToStorage([]);
+    clearAllSavedConversions();
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        localStorage.removeItem('cyber_pdf_recent_conversions_v5');
+        localStorage.removeItem('cyber_pdf_last_active_doc_id_v5');
+        localStorage.removeItem('cyber_pdf_conversion_history_v1');
+      }
+    } catch (e) {
+      console.error('Failed to flush local storage session data:', e);
+    }
+    set(() => ({
+      history: [],
+      savedConversions: [],
+      activeSavedConversionId: null,
+      editedHtml: '',
+      result: null,
+      currentPdf: null,
+      status: 'idle',
+      statusMessage: 'ALL_SESSION_DATA_PURGED // LOCAL_STORAGE_CLEARED',
+    }));
+  },
+  // ===== END NEW CODE: BULK CLEAR ALL SAVED SESSION DATA (SINGLE CLICK) =====
 }));
 // ===== END NEW CODE: DOCUMENT & CONVERSION STORE WITH BULK QUEUE & LOCAL PERSISTENCE =====
 

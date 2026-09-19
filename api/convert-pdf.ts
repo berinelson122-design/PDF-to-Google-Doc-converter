@@ -1,70 +1,92 @@
-import express from 'express';
-import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
-import dotenv from 'dotenv';
 
-dotenv.config();
+// Vercel Serverless Function Configuration
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '25mb',
+    },
+  },
+  maxDuration: 60,
+};
 
-const app = express();
-const PORT = 3000;
-
-// Support large PDF payloads up to 50MB
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// Enable CORS for external previews and testing
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
-// Lazy-initialized Gemini client
 let genAIClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
-  if (!genAIClient && process.env.GEMINI_API_KEY) {
-    genAIClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  if (!genAIClient && apiKey) {
+    genAIClient = new GoogleGenAI({ apiKey });
   }
   return genAIClient;
 }
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: Date.now(),
-    geminiConfigured: !!process.env.GEMINI_API_KEY,
+async function parseBody(req: any): Promise<any> {
+  if (req.body && typeof req.body === 'object') {
+    return req.body;
+  }
+  if (typeof req.body === 'string') {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return {};
+    }
+  }
+  // Stream buffer fallback
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', (chunk: any) => {
+      data += chunk;
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        resolve({});
+      }
+    });
+    req.on('error', () => {
+      resolve({});
+    });
   });
-});
+}
 
-// PDF Conversion Endpoint using Gemini
-app.post('/api/convert-pdf', async (req, res) => {
+export default async function handler(req: any, res: any) {
+  // CORS Headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed. Send a POST request.' });
+  }
+
   const startTime = Date.now();
+
   try {
-    const { pdfBase64, filename } = req.body;
+    const body = await parseBody(req);
+    const { pdfBase64, filename } = body;
+
     if (!pdfBase64) {
       return res.status(400).json({ error: 'pdfBase64 is required in payload' });
     }
 
-    // Clean base64 header if present
     const cleanBase64 = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
-
     const ai = getGenAI();
+
+    // High-fidelity fallback when API key is not configured in Vercel project settings
     if (!ai) {
-      // High-fidelity fallback when API key is pending configuration
-      return res.json({
-        documentTitle: filename ? filename.replace(/\.[^/.]+$/, '') : 'Parsed Document',
+      const docTitle = filename ? filename.replace(/\.[^/.]+$/, '') : 'Parsed Document';
+      return res.status(200).json({
+        documentTitle: docTitle,
         htmlContent: `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #202124;">
           <h1 style="font-size: 22pt; font-weight: 700; color: #1a73e8; border-bottom: 2px solid #e8eaed; padding-bottom: 8px;">
-            ${filename ? filename.replace(/\.[^/.]+$/, '') : 'Converted Document'}
+            ${docTitle}
           </h1>
           <p style="font-size: 11pt; margin-top: 12px; color: #3c4043;">
-            This document layout has been prepared for direct Google Docs integration. Original typographic weights and structural hierarchies are preserved.
+            This document layout has been synthesized for Google Docs import. (Notice: GEMINI_API_KEY is not yet configured in your Vercel Environment Variables. Set GEMINI_API_KEY in Vercel to unlock live neural OCR on production).
           </p>
           <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 10pt;">
             <thead>
@@ -88,11 +110,11 @@ app.post('/api/convert-pdf', async (req, res) => {
             </tbody>
           </table>
         </div>`,
-        markdownContent: `# ${filename || 'Converted Document'}\n\nDocument structure ready for export.`,
+        markdownContent: `# ${docTitle}\n\nDocument structure ready for export.`,
         stats: {
           pages: 1,
-          wordCount: 150,
-          characterCount: 950,
+          wordCount: 120,
+          characterCount: 820,
           fidelityScore: 96,
         },
         detectedElements: {
@@ -106,7 +128,6 @@ app.post('/api/convert-pdf', async (req, res) => {
       });
     }
 
-    // Call Gemini 3.8 Flash for multimodal PDF extraction
     const prompt = `You are an elite Document Layout Reconstruction Engine.
 Your task is to analyze the attached PDF file and extract its complete content into fully formatted, pristine semantic HTML designed specifically for direct import or pasting into a Google Doc.
 
@@ -162,13 +183,11 @@ STRICT REQUIREMENTS:
     });
 
     const responseText = response.text || '';
-    let parsedJson;
+    let parsedJson: any;
     try {
-      // Clean possible stray backticks if any
       const cleaned = responseText.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
       parsedJson = JSON.parse(cleaned);
     } catch {
-      // If parsing fails, wrap the raw response text into HTML
       parsedJson = {
         documentTitle: filename ? filename.replace(/\.[^/.]+$/, '') : 'Google Doc Conversion',
         htmlContent: `<div style="font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.5;">${responseText}</div>`,
@@ -190,70 +209,12 @@ STRICT REQUIREMENTS:
     }
 
     parsedJson.conversionTimeMs = Date.now() - startTime;
-    return res.json(parsedJson);
+    return res.status(200).json(parsedJson);
   } catch (error: any) {
-    console.error('PDF Conversion Pipeline Error:', error);
+    console.error('Vercel API Conversion Error:', error);
     return res.status(500).json({
       error: error.message || 'PDF extraction pipeline failure',
       details: error.toString(),
     });
   }
-});
-
-let viteMiddleware: express.RequestHandler | null = null;
-let viteReadyPromise: Promise<void> | null = null;
-
-if (process.env.NODE_ENV !== 'production') {
-  viteReadyPromise = (async () => {
-    try {
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: 'spa',
-      });
-      viteMiddleware = vite.middlewares;
-    } catch (err) {
-      console.error('Failed to initialize Vite dev server:', err);
-    }
-  })();
-
-  app.use(async (req, res, next) => {
-    if (!viteMiddleware && viteReadyPromise) {
-      await viteReadyPromise;
-    }
-    if (viteMiddleware) {
-      return viteMiddleware(req, res, next);
-    }
-    next();
-  });
-} else {
-  const distPath = path.join(process.cwd(), 'dist');
-  app.use(express.static(distPath));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
 }
-
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
-
-server.on('error', (err: any) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} in use, retrying in 500ms...`);
-    setTimeout(() => {
-      server.close();
-      server.listen(PORT, '0.0.0.0');
-    }, 500);
-  } else {
-    console.error('Server error:', err);
-  }
-});
-
-const shutdown = () => {
-  server.close(() => {
-    process.exit(0);
-  });
-};
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-

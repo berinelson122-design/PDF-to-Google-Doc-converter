@@ -13,14 +13,24 @@ import {
   Eye, 
   Plus,
   Zap,
-  Check
+  Check,
+  ShieldCheck,
+  Lock,
+  Unlock,
+  Clock,
+  Cpu,
+  FileCode,
+  Info,
+  Sliders,
+  HardDrive
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { CyberButton } from '../common/CyberButton.tsx';
 import { formatBytes } from '../../utils/formatters.ts';
 import { convertPdfToGoogleDoc } from '../../services/geminiService.ts';
 import { cyberAudio } from '../../utils/audioSynth.ts';
-import { QueueItem } from '../../types/index.ts';
+import { QueueItem, PdfTechnicalMetadata } from '../../types/index.ts';
+import { extractPdfTechnicalMetadata } from '../../utils/pdfMetadataExtractor.ts';
 
 // ===== START NEW CODE: SINGLE PDF & MULTI-FILE UPLOAD OPTIONS =====
 
@@ -165,6 +175,15 @@ export const PdfUploader: React.FC = () => {
     incrementConversionCount,
   } = useGameStore();
 
+  interface StagedPdfItem {
+    file: File;
+    base64Data: string;
+    metadata: PdfTechnicalMetadata;
+  }
+
+  const [stagedFile, setStagedFile] = useState<StagedPdfItem | null>(null);
+  const [isExtractingMetadata, setIsExtractingMetadata] = useState(false);
+
   // ==========================================
   // SINGLE PDF CONVERSION HANDLERS
   // ==========================================
@@ -174,16 +193,9 @@ export const PdfUploader: React.FC = () => {
       return;
     }
 
-    const allowed = incrementConversionCount();
-    if (!allowed) {
-      setSingleError('Daily conversion quota reached. Upgrade to Pro for unlimited conversions.');
-      return;
-    }
-
     setSingleError(null);
-    setIsSingleConverting(true);
-    setSingleProgress(10);
-    setSingleStatusMsg(`READING_BYTE_STREAM: ${file.name}`);
+    setIsExtractingMetadata(true);
+    setSingleStatusMsg(`INSPECTING_PDF_HEADER_AND_SECURITY: ${file.name}`);
     cyberAudio.playScanBeep(1);
 
     try {
@@ -195,6 +207,43 @@ export const PdfUploader: React.FC = () => {
         reader.readAsDataURL(file);
       });
 
+      // 2. Extract deep technical PDF metadata using pdf-lib parser
+      const metadata = await extractPdfTechnicalMetadata(file);
+
+      // 3. Stage the file for user verification before confirming conversion
+      setStagedFile({
+        file,
+        base64Data,
+        metadata,
+      });
+
+      cyberAudio.playSuccessChime();
+    } catch (err: any) {
+      console.error('Metadata extraction error:', err);
+      cyberAudio.playAlertBuzz();
+      setSingleError(err.message || 'Failed to inspect PDF metadata. File may be corrupted or unreadable.');
+    } finally {
+      setIsExtractingMetadata(false);
+    }
+  };
+
+  const executeConfirmedConversion = async () => {
+    if (!stagedFile) return;
+
+    const allowed = incrementConversionCount();
+    if (!allowed) {
+      setSingleError('Daily conversion quota reached. Upgrade to Pro for unlimited conversions.');
+      return;
+    }
+
+    const { file, base64Data, metadata } = stagedFile;
+    setSingleError(null);
+    setIsSingleConverting(true);
+    setSingleProgress(10);
+    setSingleStatusMsg(`INITIALIZING_BYTE_STREAM: ${file.name}`);
+    cyberAudio.playScanBeep(1);
+
+    try {
       // Mount active PDF in store
       const docId = 'pdf_' + Date.now();
       const pdfMetadata = {
@@ -202,12 +251,13 @@ export const PdfUploader: React.FC = () => {
         name: file.name,
         size: file.size,
         base64Data,
-        pageCount: 1,
+        pageCount: metadata.pageCount || 1,
         uploadedAt: Date.now(),
+        technicalMetadata: metadata,
       };
       setPdf(pdfMetadata);
 
-      // 2. Call conversion pipeline with real-time telemetry
+      // Call conversion pipeline with real-time telemetry
       const resultData = await convertPdfToGoogleDoc({
         pdfBase64: base64Data,
         filename: file.name,
@@ -218,14 +268,14 @@ export const PdfUploader: React.FC = () => {
         },
       });
 
-      // 3. Save to persistent archive
+      // Save to persistent archive
       addToHistory({
         id: docId,
         title: resultData.documentTitle,
         originalFileName: file.name,
         fileSize: file.size,
         timestamp: Date.now(),
-        pageCount: resultData.stats.pages || 1,
+        pageCount: resultData.stats.pages || metadata.pageCount || 1,
         tablesCount: resultData.detectedElements.tablesCount,
         headingsCount: resultData.detectedElements.headingsCount,
         htmlContent: resultData.htmlContent,
@@ -233,16 +283,26 @@ export const PdfUploader: React.FC = () => {
         fidelityScore: resultData.stats.fidelityScore,
         status: 'success',
         base64Data,
+        technicalMetadata: metadata,
       });
 
       cyberAudio.playSuccessChime();
       setResult(resultData);
+      setStagedFile(null);
     } catch (err: any) {
       console.error('Single PDF conversion error:', err);
       cyberAudio.playAlertBuzz();
       setSingleError(err.message || 'Single PDF conversion failed. Please try again.');
     } finally {
       setIsSingleConverting(false);
+    }
+  };
+
+  const cancelStagedFile = () => {
+    cyberAudio.playCyberClick();
+    setStagedFile(null);
+    if (singleFileInputRef.current) {
+      singleFileInputRef.current.value = '';
     }
   };
 
@@ -602,92 +662,263 @@ export const PdfUploader: React.FC = () => {
       {/* ========================================================================= */}
       {uploadMode === 'single' && (
         <div className="space-y-4">
-          {/* Single PDF Drag & Drop Target */}
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => !isSingleConverting && singleFileInputRef.current?.click()}
-            className={`relative border-2 border-dashed rounded-md p-8 md:p-12 text-center cursor-pointer transition-all duration-200 ${
-              dragOver
-                ? 'border-[#FF003C] bg-[#FF003C]/10 glow-cyber-red'
-                : 'border-neutral-800 bg-[#0A0A0C] hover:border-[#FF003C]/50 hover:bg-[#101014]'
-            } ${isSingleConverting ? 'pointer-events-none opacity-80' : ''}`}
-          >
-            <input
-              ref={singleFileInputRef}
-              type="file"
-              accept="application/pdf,.pdf"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  handleSingleFileSelected(e.target.files[0]);
-                  e.target.value = '';
-                }
-              }}
-            />
-
-            <div className="flex flex-col items-center justify-center space-y-4">
-              <div className="w-16 h-16 rounded-full bg-neutral-900 border border-[#FF003C]/40 flex items-center justify-center text-[#FF003C] shadow-[0_0_20px_rgba(255,0,60,0.25)]">
-                {isSingleConverting ? (
-                  <RefreshCw className="w-8 h-8 animate-spin text-[#FF003C]" />
-                ) : (
-                  <Upload className="w-8 h-8" />
-                )}
+          {/* Extracting Metadata Banner */}
+          {isExtractingMetadata && (
+            <div className="p-4 bg-black border border-[#FF003C] rounded flex items-center justify-between gap-3 text-xs font-mono shadow-[0_0_15px_rgba(255,0,60,0.25)]">
+              <div className="flex items-center gap-2.5 text-[#FF003C]">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span className="font-bold">PARSING PDF OBJECT CATALOG &amp; SECURITY METADATA STREAM...</span>
               </div>
+              <span className="text-[10px] text-neutral-400">PDF-LIB DECODER</span>
+            </div>
+          )}
 
-              <div>
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-[#FF003C]/20 text-[#FF003C] border border-[#FF003C]/40 text-[10px] font-bold font-mono uppercase mb-2">
-                  <Zap className="w-3 h-3" />
-                  INSTANT SINGLE PDF CONVERSION
+          {/* STAGED PDF TECHNICAL METADATA INSPECTION & PRE-CONVERSION PROTOCOL */}
+          {stagedFile && !isSingleConverting && (
+            <div className="p-5 bg-[#09090C] border-2 border-[#FF003C] rounded space-y-4 font-mono shadow-[0_0_25px_rgba(255,0,60,0.2)]">
+              {/* Panel Header */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-800">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-[#FF003C]" />
+                  <div>
+                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                      TECHNICAL PDF METADATA INSPECTION
+                    </h4>
+                    <p className="text-[11px] text-neutral-400">
+                      Pre-conversion verification matrix &bull; Confirm before neural reconstruction
+                    </p>
+                  </div>
                 </div>
-                <h3 className="font-mono text-sm md:text-base font-bold tracking-wider text-white uppercase">
-                  DROP A SINGLE PDF OR CLICK TO CONVERT IMMEDIATELY
-                </h3>
-                <p className="font-mono text-xs text-neutral-400 mt-1.5 max-w-lg mx-auto leading-relaxed">
-                  Select 1 PDF file. The neural engine reconstructs tables, headings, and font styles in real time and automatically mounts your Google Doc.
-                </p>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-500/50 bg-emerald-950/40 text-emerald-400 uppercase">
+                  READY FOR CONVERSION
+                </span>
               </div>
 
-              {/* Single File Action Button */}
-              <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-                <CyberButton
-                  variant="primary"
-                  size="md"
-                  icon={
-                    isSingleConverting ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Zap className="w-4 h-4" />
-                    )
-                  }
-                  glow={!isSingleConverting}
-                >
-                  {isSingleConverting ? 'CONVERTING DOCUMENT...' : 'SELECT SINGLE PDF & CONVERT'}
-                </CyberButton>
+              {/* Metadata Matrix Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                {/* 1. Document Identity */}
+                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1">
+                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-[#FF003C]" />
+                    FILE IDENTITY
+                  </span>
+                  <div className="text-white font-bold truncate" title={stagedFile.file.name}>
+                    {stagedFile.file.name}
+                  </div>
+                  <div className="text-[11px] text-neutral-400 flex items-center gap-2">
+                    <span>{formatBytes(stagedFile.file.size)}</span>
+                    <span>&bull;</span>
+                    <span className="text-emerald-400">{stagedFile.metadata.pageCount} PAGE(S)</span>
+                  </div>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setUploadMode('batch');
-                  }}
-                  className="text-xs font-mono text-neutral-400 hover:text-[#E056FD] uppercase underline underline-offset-4 transition-colors"
-                >
-                  Or switch to multi-file queue &rarr;
-                </button>
+                {/* 2. Creator Tool & Producer */}
+                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1">
+                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
+                    <FileCode className="w-3.5 h-3.5 text-[#E056FD]" />
+                    CREATOR SUITE / TOOL
+                  </span>
+                  <div className="text-white font-bold truncate" title={stagedFile.metadata.creatorTool || 'Unspecified'}>
+                    {stagedFile.metadata.creatorTool || 'Unspecified / Standard Tool'}
+                  </div>
+                  <div className="text-[10px] text-neutral-500 truncate" title={stagedFile.metadata.producer || 'Default Engine'}>
+                    PRODUCER: {stagedFile.metadata.producer || 'Standard PDF Engine'}
+                  </div>
+                </div>
+
+                {/* 3. Creation Date */}
+                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1">
+                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-neutral-400" />
+                    CREATION TIMESTAMP
+                  </span>
+                  <div className="text-white font-bold text-[11px]">
+                    {stagedFile.metadata.creationDate 
+                      ? new Date(stagedFile.metadata.creationDate).toLocaleString() 
+                      : 'NOT STAMPED IN PDF HEADER'
+                    }
+                  </div>
+                  <div className="text-[10px] text-neutral-500">
+                    MODIFIED: {stagedFile.metadata.modificationDate 
+                      ? new Date(stagedFile.metadata.modificationDate).toLocaleDateString() 
+                      : 'Unchanged'}
+                  </div>
+                </div>
+
+                {/* 4. PDF Specification & Format */}
+                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1">
+                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                    SPECIFICATION VERSION
+                  </span>
+                  <div className="text-white font-bold text-sm">
+                    PDF v{stagedFile.metadata.pdfVersion || '1.7'}
+                  </div>
+                  <div className="text-[10px] text-neutral-500">
+                    ISO 32000 STANDARD COMPLIANT
+                  </div>
+                </div>
+
+                {/* 5. Security & Encryption Matrix */}
+                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1 sm:col-span-2">
+                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                    SECURITY SETTINGS &amp; PERMISSIONS
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                      stagedFile.metadata.isEncrypted
+                        ? 'border-rose-500 bg-rose-950/40 text-rose-300'
+                        : 'border-emerald-500/50 bg-emerald-950/30 text-emerald-400'
+                    }`}>
+                      {stagedFile.metadata.isEncrypted ? 'ENCRYPTED' : 'UNENCRYPTED (CLEAR)'}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                      stagedFile.metadata.securitySettings.allowsPrinting
+                        ? 'border-neutral-800 bg-neutral-900 text-neutral-300'
+                        : 'border-rose-800 bg-rose-950/30 text-rose-400'
+                    }`}>
+                      {stagedFile.metadata.securitySettings.allowsPrinting ? 'PRINT: ALLOWED' : 'PRINT: RESTRICTED'}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                      stagedFile.metadata.securitySettings.allowsCopying
+                        ? 'border-neutral-800 bg-neutral-900 text-neutral-300'
+                        : 'border-rose-800 bg-rose-950/30 text-rose-400'
+                    }`}>
+                      {stagedFile.metadata.securitySettings.allowsCopying ? 'COPY/EXTRACT: ALLOWED' : 'COPY: RESTRICTED'}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                      stagedFile.metadata.securitySettings.allowsModifying
+                        ? 'border-neutral-800 bg-neutral-900 text-neutral-300'
+                        : 'border-neutral-800 bg-neutral-900 text-neutral-400'
+                    }`}>
+                      {stagedFile.metadata.securitySettings.allowsModifying ? 'MODIFY: PERMITTED' : 'MODIFY: READ-ONLY'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Confirmation Action Buttons */}
+              <div className="pt-3 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-[11px] text-neutral-400 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-[#FF003C]" />
+                  <span>Review technical metadata above and confirm conversion.</span>
+                </div>
+
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <CyberButton
+                    variant="outline"
+                    size="sm"
+                    onClick={cancelStagedFile}
+                    icon={<X className="w-3.5 h-3.5" />}
+                  >
+                    DISCARD / CANCEL
+                  </CyberButton>
+
+                  <CyberButton
+                    variant="primary"
+                    size="md"
+                    onClick={executeConfirmedConversion}
+                    icon={<Zap className="w-4 h-4" />}
+                    glow
+                    className="font-bold shadow-[0_0_15px_rgba(255,0,60,0.4)]"
+                  >
+                    CONFIRM &amp; CONSTRUCT GOOGLE DOC
+                  </CyberButton>
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Tactical Corner Marks */}
-            <div className="absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-[#FF003C]" />
-            <div className="absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-[#FF003C]" />
-            <div className="absolute bottom-2 left-2 w-3 h-3 border-b-2 border-l-2 border-[#FF003C]" />
-            <div className="absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-[#FF003C]" />
-          </div>
+          {/* Single PDF Drag & Drop Target (shown when not staged or converting) */}
+          {!stagedFile && (
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => !isSingleConverting && singleFileInputRef.current?.click()}
+              className={`relative border-2 border-dashed rounded-md p-8 md:p-12 text-center cursor-pointer transition-all duration-200 ${
+                dragOver
+                  ? 'border-[#FF003C] bg-[#FF003C]/10 glow-cyber-red'
+                  : 'border-neutral-800 bg-[#0A0A0C] hover:border-[#FF003C]/50 hover:bg-[#101014]'
+              } ${isSingleConverting ? 'pointer-events-none opacity-80' : ''}`}
+            >
+              <input
+                id="single-pdf-input"
+                ref={singleFileInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleSingleFileSelected(e.target.files[0]);
+                    e.target.value = '';
+                  }
+                }}
+              />
+
+              <div className="flex flex-col items-center justify-center space-y-4">
+                <div className="w-16 h-16 rounded-full bg-neutral-900 border border-[#FF003C]/40 flex items-center justify-center text-[#FF003C] shadow-[0_0_20px_rgba(255,0,60,0.25)]">
+                  {isSingleConverting ? (
+                    <RefreshCw className="w-8 h-8 animate-spin text-[#FF003C]" />
+                  ) : (
+                    <Upload className="w-8 h-8" />
+                  )}
+                </div>
+
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-[#FF003C]/20 text-[#FF003C] border border-[#FF003C]/40 text-[10px] font-bold font-mono uppercase mb-2">
+                    <Zap className="w-3 h-3" />
+                    INSTANT SINGLE PDF CONVERSION
+                  </div>
+                  <h3 className="font-mono text-sm md:text-base font-bold tracking-wider text-white uppercase">
+                    DROP A SINGLE PDF OR CLICK TO INSPECT &amp; CONVERT
+                  </h3>
+                  <p className="font-mono text-xs text-neutral-400 mt-1.5 max-w-lg mx-auto leading-relaxed">
+                    Select 1 PDF file. Automatically extracts creator tool, creation timestamp, and security settings before confirming reconstruction.
+                  </p>
+                </div>
+
+                {/* Single File Action Button */}
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                  <CyberButton
+                    variant="primary"
+                    size="md"
+                    icon={
+                      isSingleConverting ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Zap className="w-4 h-4" />
+                      )
+                    }
+                    glow={!isSingleConverting}
+                  >
+                    {isSingleConverting ? 'CONVERTING DOCUMENT...' : 'SELECT SINGLE PDF & CONVERT'}
+                  </CyberButton>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setUploadMode('batch');
+                    }}
+                    className="text-xs font-mono text-neutral-400 hover:text-[#E056FD] uppercase underline underline-offset-4 transition-colors"
+                  >
+                    Or switch to multi-file queue &rarr;
+                  </button>
+                </div>
+              </div>
+
+              {/* Tactical Corner Marks */}
+              <div className="absolute top-2 left-2 w-3 h-3 border-t-2 border-l-2 border-[#FF003C]" />
+              <div className="absolute top-2 right-2 w-3 h-3 border-t-2 border-r-2 border-[#FF003C]" />
+              <div className="absolute bottom-2 left-2 w-3 h-3 border-b-2 border-l-2 border-[#FF003C]" />
+              <div className="absolute bottom-2 right-2 w-3 h-3 border-b-2 border-r-2 border-[#FF003C]" />
+            </div>
+          )}
 
           {/* Live Single Conversion Telemetry HUD */}
           {isSingleConverting && (

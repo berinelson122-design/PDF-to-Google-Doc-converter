@@ -28,7 +28,10 @@ export const LiveDocPreview: React.FC = () => {
     editedHtml, 
     setEditedHtml, 
     exportConfig, 
-    openExportModal 
+    openExportModal,
+    isAutoSaveEnabled,
+    saveDraftToStorage,
+    lastAutoSavedAt
   } = useGameStore();
 
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -44,6 +47,32 @@ export const LiveDocPreview: React.FC = () => {
       }
     }
   }, [result]);
+
+  // ===== START NEW CODE: DRAFT AUTO-SAVE TO LOCAL STORAGE (PERIODIC 3-SECOND TICK) =====
+  useEffect(() => {
+    if (!isAutoSaveEnabled || !editedHtml) return;
+
+    const intervalId = setInterval(() => {
+      saveDraftToStorage();
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [isAutoSaveEnabled, editedHtml, saveDraftToStorage]);
+  // ===== END NEW CODE: DRAFT AUTO-SAVE TO LOCAL STORAGE (PERIODIC 3-SECOND TICK) =====
+
+  // ===== START NEW CODE: REAL-TIME DYNAMIC WORD & CHARACTER COUNT CALCULATOR =====
+  const cleanDocumentText = (editedHtml || result?.htmlContent || '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const wordCount = cleanDocumentText ? cleanDocumentText.split(/\s+/).filter(Boolean).length : 0;
+  const characterCount = cleanDocumentText.length;
+  const characterNoSpaces = cleanDocumentText.replace(/\s/g, '').length;
+  // ===== END NEW CODE: REAL-TIME DYNAMIC WORD & CHARACTER COUNT CALCULATOR =====
 
   const handleContentInput = () => {
     if (editorRef.current) {
@@ -256,21 +285,63 @@ export const LiveDocPreview: React.FC = () => {
         </div>
       </div>
 
-      {/* Bottom Status Telemetry */}
-      {result && (
-        <div className="bg-[#111114] border-t border-neutral-800 px-4 py-2 flex flex-wrap items-center justify-between text-[11px] font-mono text-neutral-400">
+      {/* Bottom Status Telemetry & Dynamic Word/Character Count Indicator */}
+      {(result || editedHtml) && (
+        <div className="bg-[#111114] border-t border-neutral-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-[11px] font-mono text-neutral-400">
           <div className="flex items-center gap-3">
             <span className="text-white font-bold">{exportConfig.docTitle}</span>
             <span>&bull;</span>
-            <span className="text-emerald-400">Tables: {result.detectedElements.tablesCount}</span>
+            <span className="text-emerald-400">Tables: {result?.detectedElements.tablesCount ?? 0}</span>
             <span>&bull;</span>
-            <span className="text-[#E056FD]">Headings: {result.detectedElements.headingsCount}</span>
+            <span className="text-[#E056FD]">Headings: {result?.detectedElements.headingsCount ?? 0}</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <CyberBadge label={`FIDELITY: ${result.stats.fidelityScore}%`} variant="green" />
-            <CyberBadge label={`TIME: ${result.conversionTimeMs}ms`} variant="purple" />
+          {/* ===== START NEW CODE: REAL-TIME WORD & CHARACTER COUNT TELEMETRY BADGE ===== */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-2 px-3 py-1 bg-black/90 border border-neutral-800 rounded text-neutral-300">
+              <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">
+                DOCUMENT:
+              </span>
+              <span className="flex items-center gap-1 font-bold">
+                <span className="text-[#FF003C]">{wordCount.toLocaleString()}</span>
+                <span className="text-[10px] text-neutral-400 font-normal">WORDS</span>
+              </span>
+              <span className="text-neutral-700">|</span>
+              <span className="flex items-center gap-1 font-bold">
+                <span className="text-[#E056FD]">{characterCount.toLocaleString()}</span>
+                <span className="text-[10px] text-neutral-400 font-normal">CHARS</span>
+              </span>
+              <span className="text-neutral-700 hidden sm:inline">|</span>
+              <span className="text-[10px] text-neutral-400 hidden sm:inline">
+                {characterNoSpaces.toLocaleString()} NO-SPACES
+              </span>
+            </div>
+
+            {/* Auto-Save Status Telemetry */}
+            <div
+              className={`px-2.5 py-1 rounded border text-[10px] font-mono flex items-center gap-1.5 ${
+                isAutoSaveEnabled
+                  ? 'border-emerald-500/50 bg-emerald-950/30 text-emerald-400'
+                  : 'border-neutral-800 bg-neutral-900/60 text-neutral-500'
+              }`}
+              title={
+                isAutoSaveEnabled
+                  ? `Periodic Auto-save: Active (last saved: ${lastAutoSavedAt ? new Date(lastAutoSavedAt).toLocaleTimeString() : 'syncing...'})`
+                  : 'Auto-save disabled in Settings'
+              }
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isAutoSaveEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-600'}`} />
+              <span>{isAutoSaveEnabled ? 'AUTO-SAVE ON' : 'AUTO-SAVE OFF'}</span>
+            </div>
+
+            {result && (
+              <>
+                <CyberBadge label={`FIDELITY: ${result.stats.fidelityScore}%`} variant="green" />
+                <CyberBadge label={`TIME: ${result.conversionTimeMs}ms`} variant="purple" />
+              </>
+            )}
           </div>
+          {/* ===== END NEW CODE: REAL-TIME WORD & CHARACTER COUNT TELEMETRY BADGE ===== */}
         </div>
       )}
     </div>

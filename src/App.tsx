@@ -10,13 +10,15 @@ import { PricingModal } from './components/UI/PricingModal.tsx';
 import { ConversionHistory } from './components/UI/ConversionHistory.tsx';
 import { RecentConversionsBar } from './components/UI/RecentConversionsBar.tsx';
 import { useUniversalInput } from './hooks/useUniversalInput.ts';
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.ts';
 import { useGameStore } from './store/useGameStore.ts';
-import { FileText, ArrowRight, CheckCircle2, Zap, RotateCcw } from 'lucide-react';
+import { FileText, ArrowRight, CheckCircle2, Zap, RotateCcw, Command, Keyboard } from 'lucide-react';
 import { CyberButton } from './components/common/CyberButton.tsx';
 
 // ===== START NEW CODE: MAIN APP BRAIN & CYBERPUNK ARCHITECTURE =====
 export default function App() {
   useUniversalInput();
+  const { activeNotification } = useGlobalShortcuts();
   const { 
     result, 
     currentPdf, 
@@ -156,6 +158,26 @@ export default function App() {
       <ControlSettings />
       <DocxExportModal />
       <PricingModal />
+
+      {/* Global Keyboard Shortcut HUD Toast Notification */}
+      {activeNotification && (
+        <div 
+          id="global-shortcut-hud-toast"
+          className="fixed top-20 right-4 sm:right-6 z-50 bg-[#0A0A0E] border-2 border-[#FF003C] rounded px-4 py-2.5 shadow-[0_0_20px_rgba(255,0,60,0.4)] flex items-center gap-3 font-mono transition-all"
+        >
+          <div className="p-1.5 rounded bg-[#FF003C]/20 text-[#FF003C] border border-[#FF003C]/40">
+            <Keyboard className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-[10px] text-[#FF003C] font-bold tracking-wider">
+              {activeNotification.combo} EXECUTED
+            </div>
+            <div className="text-xs text-white font-bold uppercase">
+              {activeNotification.message}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Right Required Cyber Watermark */}
       <Watermark />

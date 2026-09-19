@@ -15,7 +15,12 @@ import {
   SlidersHorizontal,
   Calendar,
   FileSpreadsheet,
-  Download
+  Download,
+  FolderArchive,
+  CheckSquare,
+  Square,
+  FileDown,
+  Loader2
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { 
@@ -24,17 +29,38 @@ import {
   wrapForGoogleDocsClipboard,
   exportHistoryToCsv 
 } from '../../utils/formatters.ts';
+import { 
+  downloadBatchDocxZip, 
+  downloadSingleDocx, 
+  BatchZipProgress 
+} from '../../utils/docxExport.ts';
 import { CyberButton } from '../common/CyberButton.tsx';
 import { cyberAudio } from '../../utils/audioSynth.ts';
 
-// ===== START NEW CODE: PERSISTENT UPLOADED PDF HISTORY ARCHIVE WITH FILENAME SEARCH & CSV EXPORT =====
+// ===== START NEW CODE: PERSISTENT UPLOADED PDF HISTORY ARCHIVE WITH BATCH SELECTION & ZIPPED .DOCX EXPORT =====
 export const ConversionHistory: React.FC = () => {
-  const { history, loadHistoryItem, deleteHistoryItem, clearHistory, addToHistory } = useGameStore();
+  const { 
+    history, 
+    savedConversions, 
+    loadHistoryItem, 
+    deleteHistoryItem, 
+    clearHistory, 
+    addToHistory, 
+    clearAllSessionData 
+  } = useGameStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'tables' | 'today'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isCsvExporting, setIsCsvExporting] = useState(false);
   const [csvSuccessMsg, setCsvSuccessMsg] = useState<string | null>(null);
+  const [bulkDeleteSuccessMsg, setBulkDeleteSuccessMsg] = useState<string | null>(null);
+
+  // Batch selection states
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isZipExporting, setIsZipExporting] = useState(false);
+  const [zipProgress, setZipProgress] = useState<BatchZipProgress | null>(null);
+  const [zipSuccessMsg, setZipSuccessMsg] = useState<string | null>(null);
+  const [downloadingSingleDocxId, setDownloadingSingleDocxId] = useState<string | null>(null);
 
   // Filter history strictly by filename and optional filter tags
   const filteredHistory = useMemo(() => {
@@ -63,9 +89,114 @@ export const ConversionHistory: React.FC = () => {
 
   const totalSize = history.reduce((acc, curr) => acc + (curr.fileSize || 150000), 0);
 
+  // Selected items resolved against history
+  const selectedItems = useMemo(() => {
+    const selectedSet = new Set(selectedIds);
+    return history.filter((item) => selectedSet.has(item.id));
+  }, [history, selectedIds]);
+
+  const isAllFilteredSelected = filteredHistory.length > 0 && filteredHistory.every((item) => selectedIds.includes(item.id));
+  const isPartiallySelected = filteredHistory.some((item) => selectedIds.includes(item.id)) && !isAllFilteredSelected;
+
+  // Toggle single item selection
+  const handleToggleSelect = (id: string) => {
+    cyberAudio.playCyberClick();
+    setSelectedIds((prev) => 
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  // Toggle select all visible/filtered items
+  const handleToggleSelectAll = () => {
+    cyberAudio.playCyberClick();
+    if (isAllFilteredSelected) {
+      const filteredIdSet = new Set(filteredHistory.map((item) => item.id));
+      setSelectedIds((prev) => prev.filter((id) => !filteredIdSet.has(id)));
+    } else {
+      const combined = new Set([...selectedIds, ...filteredHistory.map((item) => item.id)]);
+      setSelectedIds(Array.from(combined));
+    }
+  };
+
+  // Clear all selections
+  const handleDeselectAll = () => {
+    cyberAudio.playCyberClick();
+    setSelectedIds([]);
+  };
+
+  // Batch delete selected items
+  const handleBatchDelete = () => {
+    if (selectedItems.length === 0) return;
+    if (confirm(`Permanently delete ${selectedItems.length} selected document record${selectedItems.length !== 1 ? 's' : ''} from history?`)) {
+      cyberAudio.playAlertBuzz();
+      selectedItems.forEach((item) => deleteHistoryItem(item.id));
+      setSelectedIds([]);
+    }
+  };
+
+  // ===== START NEW CODE: BATCH ZIPPED .DOCX EXPORT HANDLER =====
+  const handleDownloadBatchZip = async () => {
+    if (selectedItems.length === 0) return;
+    setIsZipExporting(true);
+    cyberAudio.playScanBeep(2);
+    setZipSuccessMsg(null);
+
+    try {
+      const dateSlug = new Date().toISOString().slice(0, 10);
+      const customZipName = `google_docs_batch_${selectedItems.length}_docx_${dateSlug}.zip`;
+
+      await downloadBatchDocxZip(selectedItems, customZipName, (progress) => {
+        setZipProgress(progress);
+      });
+
+      cyberAudio.playSuccessChime();
+      setZipSuccessMsg(`SUCCESSFULLY ARCHIVED & DOWNLOADED ${selectedItems.length} FORMATTED .DOCX FILE${selectedItems.length !== 1 ? 'S' : ''} IN A SINGLE ZIP`);
+    } catch (err: any) {
+      console.error('Batch ZIP export error:', err);
+      cyberAudio.playAlertBuzz();
+    } finally {
+      setIsZipExporting(false);
+      setTimeout(() => {
+        setZipProgress(null);
+        setZipSuccessMsg(null);
+      }, 5000);
+    }
+  };
+  // ===== END NEW CODE: BATCH ZIPPED .DOCX EXPORT HANDLER =====
+
+  // Quick single .docx download handler
+  const handleDownloadSingleDocx = async (item: any) => {
+    setDownloadingSingleDocxId(item.id);
+    cyberAudio.playCyberClick();
+    try {
+      await downloadSingleDocx(item.htmlContent, item.originalFileName || item.title);
+      cyberAudio.playSuccessChime();
+    } catch (err) {
+      console.error('Single DOCX download error:', err);
+      cyberAudio.playAlertBuzz();
+    } finally {
+      setDownloadingSingleDocxId(null);
+    }
+  };
+
+  // ===== START NEW CODE: SINGLE-CLICK BULK DELETE ALL LOCAL STORAGE SESSION DATA =====
+  const handleBulkDeleteAllSessionData = () => {
+    cyberAudio.playAlertBuzz();
+    clearAllSessionData();
+    setSelectedIds([]);
+    setBulkDeleteSuccessMsg('ALL SAVED SESSION DATA CLEARED FROM LOCAL STORAGE (SINGLE-CLICK ACTION)');
+    setTimeout(() => {
+      setBulkDeleteSuccessMsg(null);
+    }, 4500);
+  };
+  // ===== END NEW CODE: SINGLE-CLICK BULK DELETE ALL LOCAL STORAGE SESSION DATA =====
+
   // ===== START NEW CODE: CSV EXPORT HANDLER =====
-  const handleExportCsv = (scope: 'filtered' | 'all' = 'filtered') => {
-    const itemsToExport = scope === 'all' ? history : filteredHistory;
+  const handleExportCsv = (scope: 'selected' | 'filtered' | 'all' = 'filtered') => {
+    let itemsToExport = filteredHistory;
+    if (scope === 'selected') itemsToExport = selectedItems;
+    else if (scope === 'all') itemsToExport = history;
+
     if (itemsToExport.length === 0) return;
 
     setIsCsvExporting(true);
@@ -153,10 +284,25 @@ export const ConversionHistory: React.FC = () => {
         </div>
 
         {/* Global Archive Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* ===== START NEW CODE: BULK DELETE OPTION (CLEAR ALL SAVED SESSION DATA FROM LOCAL STORAGE WITH SINGLE CLICK) ===== */}
+          {(history.length > 0 || savedConversions.length > 0) && (
+            <CyberButton
+              variant="outline"
+              size="sm"
+              icon={<Trash2 className="w-3.5 h-3.5 text-[#FF003C]" />}
+              onClick={handleBulkDeleteAllSessionData}
+              className="!text-[10px] !py-1 !px-2.5 text-neutral-300 hover:text-white border-[#FF003C]/60 hover:border-[#FF003C] hover:bg-[#FF003C]/20 shadow-[0_0_10px_rgba(255,0,60,0.25)] font-bold"
+              title="Single-click bulk purge: Clears all saved conversions, cached PDF sessions, and active draft edits from local storage"
+            >
+              BULK DELETE ALL SESSIONS
+            </CyberButton>
+          )}
+          {/* ===== END NEW CODE: BULK DELETE OPTION (CLEAR ALL SAVED SESSION DATA FROM LOCAL STORAGE WITH SINGLE CLICK) ===== */}
+
           {history.length > 0 && (
             <>
-              {/* ===== START NEW CODE: EXPORT CSV BUTTON CONTROLS ===== */}
+              {/* Export CSV Controls */}
               <CyberButton
                 variant="secondary"
                 size="sm"
@@ -167,17 +313,18 @@ export const ConversionHistory: React.FC = () => {
                     <FileSpreadsheet className="w-3.5 h-3.5 text-[#E056FD]" />
                   )
                 }
-                onClick={() => handleExportCsv(filteredHistory.length > 0 ? 'filtered' : 'all')}
+                onClick={() => handleExportCsv(selectedItems.length > 0 ? 'selected' : (filteredHistory.length > 0 ? 'filtered' : 'all'))}
                 className="!text-[10px] !py-1 !px-2.5 text-white hover:text-[#E056FD] border border-[#E056FD]/40 shadow-[0_0_10px_rgba(224,86,253,0.15)]"
-                title={`Export list of converted document filenames and metadata as a CSV file (${filteredHistory.length} items)`}
+                title={`Export list of converted document filenames and metadata as a CSV file (${selectedItems.length > 0 ? selectedItems.length : filteredHistory.length} items)`}
               >
                 {isCsvExporting
                   ? 'CSV DOWNLOADED!'
+                  : selectedItems.length > 0
+                  ? `EXPORT CSV (${selectedItems.length})`
                   : (searchQuery.trim() || filterType !== 'all')
                   ? `EXPORT CSV (${filteredHistory.length})`
                   : 'EXPORT CSV'}
               </CyberButton>
-              {/* ===== END NEW CODE: EXPORT CSV BUTTON CONTROLS ===== */}
 
               <CyberButton
                 variant="outline"
@@ -187,6 +334,7 @@ export const ConversionHistory: React.FC = () => {
                   if (confirm('Clear all uploaded PDF documents from local history?')) {
                     cyberAudio.playAlertBuzz();
                     clearHistory();
+                    setSelectedIds([]);
                   }
                 }}
                 className="!text-[10px] !py-1 !px-2.5 text-neutral-400 hover:text-rose-400"
@@ -198,6 +346,20 @@ export const ConversionHistory: React.FC = () => {
         </div>
       </div>
 
+      {/* ===== START NEW CODE: BULK DELETE SUCCESS BANNER FEEDBACK ===== */}
+      {bulkDeleteSuccessMsg && (
+        <div className="p-2.5 bg-rose-950/40 border border-[#FF003C]/60 rounded flex items-center justify-between gap-2 text-xs font-mono text-rose-300 shadow-[0_0_15px_rgba(255,0,60,0.3)] animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Trash2 className="w-4 h-4 text-[#FF003C] shrink-0" />
+            <span className="font-bold">{bulkDeleteSuccessMsg}</span>
+          </div>
+          <span className="text-[10px] text-[#FF003C]/90 uppercase font-mono tracking-wider font-bold">
+            STORAGE PURGED
+          </span>
+        </div>
+      )}
+      {/* ===== END NEW CODE: BULK DELETE SUCCESS BANNER FEEDBACK ===== */}
+
       {/* CSV Export Success Banner Feedback */}
       {csvSuccessMsg && (
         <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/50 rounded flex items-center justify-between gap-2 text-xs font-mono text-emerald-300">
@@ -208,6 +370,49 @@ export const ConversionHistory: React.FC = () => {
           <span className="text-[10px] text-emerald-400/80 uppercase font-mono tracking-wider">
             SAVED TO DOWNLOADS
           </span>
+        </div>
+      )}
+
+      {/* ZIP Export Success Banner Feedback */}
+      {zipSuccessMsg && (
+        <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/60 rounded flex items-center justify-between gap-2 text-xs font-mono text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-bold">{zipSuccessMsg}</span>
+          </div>
+          <span className="text-[10px] text-emerald-400/90 uppercase font-mono tracking-wider font-bold">
+            ZIPPED .DOCX ARCHIVE CREATED
+          </span>
+        </div>
+      )}
+
+      {/* ZIP Export Progress Indicator */}
+      {isZipExporting && (
+        <div className="p-3 bg-neutral-950 border border-[#00FF66]/50 rounded font-mono text-xs space-y-2 shadow-[0_0_15px_rgba(0,255,102,0.15)]">
+          <div className="flex items-center justify-between text-[#00FF66]">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[#00FF66]" />
+              <span className="font-bold uppercase tracking-wider">
+                {zipProgress?.status === 'zipping'
+                  ? 'COMPRESSING MASTER ZIP ARCHIVE...'
+                  : `FORMATTING DOCX ${zipProgress?.currentItem || 1} / ${zipProgress?.totalItems || selectedItems.length}...`}
+              </span>
+            </div>
+            <span className="text-[11px] text-neutral-400">
+              {Math.round(((zipProgress?.currentItem || 1) / (zipProgress?.totalItems || selectedItems.length || 1)) * 100)}%
+            </span>
+          </div>
+          <div className="w-full bg-neutral-900 h-1.5 rounded-full overflow-hidden">
+            <div
+              className="bg-[#00FF66] h-full transition-all duration-300 shadow-[0_0_8px_rgba(0,255,102,0.8)]"
+              style={{
+                width: `${Math.round(((zipProgress?.currentItem || 1) / (zipProgress?.totalItems || selectedItems.length || 1)) * 100)}%`,
+              }}
+            />
+          </div>
+          <p className="text-[10px] text-neutral-400 truncate">
+            Current Document: {zipProgress?.currentTitle || 'Preparing docx layout...'}
+          </p>
         </div>
       )}
 
@@ -301,6 +506,98 @@ export const ConversionHistory: React.FC = () => {
         </div>
       )}
 
+      {/* ===== START NEW CODE: BATCH SELECTION & ACTION TOOLBAR ===== */}
+      {filteredHistory.length > 0 && (
+        <div className={`p-3 rounded border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+          selectedItems.length > 0
+            ? 'bg-[#00FF66]/[0.06] border-[#00FF66]/50 shadow-[0_0_15px_rgba(0,255,102,0.12)]'
+            : 'bg-neutral-950 border-neutral-800'
+        }`}>
+          {/* Select All Checkbox Control */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleToggleSelectAll}
+              className={`flex items-center gap-2 text-xs font-bold transition-colors ${
+                isAllFilteredSelected || isPartiallySelected
+                  ? 'text-[#00FF66]'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+              title={isAllFilteredSelected ? 'Deselect all visible documents' : 'Select all visible documents'}
+            >
+              {isAllFilteredSelected ? (
+                <CheckSquare className="w-4 h-4 text-[#00FF66]" />
+              ) : isPartiallySelected ? (
+                <CheckSquare className="w-4 h-4 text-[#00FF66]/70" />
+              ) : (
+                <Square className="w-4 h-4 text-neutral-500" />
+              )}
+              <span className="uppercase tracking-wider">
+                {isAllFilteredSelected ? 'DESELECT ALL' : `SELECT ALL (${filteredHistory.length})`}
+              </span>
+            </button>
+
+            {selectedItems.length > 0 && (
+              <span className="px-2 py-0.5 rounded bg-[#00FF66]/20 border border-[#00FF66]/60 text-[#00FF66] text-xs font-bold tracking-wider">
+                {selectedItems.length} SELECTED
+              </span>
+            )}
+          </div>
+
+          {/* Batch Actions when 1 or more items selected */}
+          {selectedItems.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* PRIMARY BATCH DOWNLOAD ZIP BUTTON */}
+              <CyberButton
+                variant="primary"
+                size="sm"
+                icon={
+                  isZipExporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <FolderArchive className="w-3.5 h-3.5" />
+                  )
+                }
+                onClick={handleDownloadBatchZip}
+                disabled={isZipExporting}
+                className="!text-[10px] !py-1.5 !px-3 font-bold shadow-[0_0_12px_rgba(0,255,102,0.35)]"
+                title={`Download ${selectedItems.length} selected documents as a single zipped archive of formatted .docx files`}
+              >
+                {isZipExporting
+                  ? 'PACKAGING ZIPPED ARCHIVE...'
+                  : `DOWNLOAD ZIPPED .DOCX ARCHIVE (${selectedItems.length})`}
+              </CyberButton>
+
+              {/* Batch Delete Button */}
+              <CyberButton
+                variant="outline"
+                size="sm"
+                icon={<Trash2 className="w-3.5 h-3.5 text-rose-400" />}
+                onClick={handleBatchDelete}
+                className="!text-[10px] !py-1.5 !px-2.5 text-neutral-400 hover:text-rose-400 hover:border-rose-800"
+                title="Delete selected documents from history"
+              >
+                DELETE ({selectedItems.length})
+              </CyberButton>
+
+              {/* Deselect All */}
+              <button
+                type="button"
+                onClick={handleDeselectAll}
+                className="text-[10px] text-neutral-400 hover:text-white px-2 py-1 rounded hover:bg-neutral-900 transition-colors uppercase tracking-wider"
+              >
+                CLEAR SELECTION
+              </button>
+            </div>
+          ) : (
+            <div className="text-[11px] text-neutral-500 hidden sm:block">
+              Check multiple conversions below to download a single zipped .docx archive.
+            </div>
+          )}
+        </div>
+      )}
+      {/* ===== END NEW CODE: BATCH SELECTION & ACTION TOOLBAR ===== */}
+
       {/* History Items Grid or Empty States */}
       {history.length === 0 ? (
         <div className="p-8 border border-dashed border-neutral-800 rounded bg-black/40 text-center space-y-3">
@@ -346,24 +643,56 @@ export const ConversionHistory: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredHistory.map((item) => {
             const isCopied = copiedId === item.id;
+            const isSelected = selectedIds.includes(item.id);
+            const isDownloadingDocx = downloadingSingleDocxId === item.id;
             const fileName = item.originalFileName || `${item.title}.pdf`;
 
             return (
               <div
                 key={item.id}
-                className="p-3.5 border border-neutral-800 hover:border-[#FF003C]/50 bg-black rounded transition-all flex flex-col justify-between group space-y-3 relative overflow-hidden"
+                onClick={() => handleToggleSelect(item.id)}
+                className={`p-3.5 border rounded transition-all flex flex-col justify-between group space-y-3 relative overflow-hidden cursor-pointer ${
+                  isSelected
+                    ? 'border-[#00FF66] bg-[#00FF66]/[0.04] shadow-[0_0_15px_rgba(0,255,102,0.12)]'
+                    : 'border-neutral-800 hover:border-neutral-700 bg-black'
+                }`}
               >
                 {/* Tactical Accent Corner */}
-                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#FF003C]/60" />
+                <div
+                  className={`absolute top-0 right-0 w-2.5 h-2.5 border-t border-r transition-colors ${
+                    isSelected ? 'border-[#00FF66]' : 'border-[#FF003C]/60 group-hover:border-[#FF003C]'
+                  }`}
+                />
 
                 {/* Item Details */}
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <FileText className="w-4 h-4 text-[#FF003C] shrink-0" />
-                      <span className="text-xs font-bold text-white truncate group-hover:text-[#FF003C] transition-colors">
-                        {item.title}
-                      </span>
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                      {/* Batch Selection Checkbox */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleSelect(item.id);
+                        }}
+                        className={`w-4 h-4 rounded mt-0.5 shrink-0 flex items-center justify-center border transition-all ${
+                          isSelected
+                            ? 'bg-[#00FF66] border-[#00FF66] text-black shadow-[0_0_8px_rgba(0,255,102,0.6)]'
+                            : 'bg-neutral-900 border-neutral-700 text-transparent hover:border-neutral-500'
+                        }`}
+                        title={isSelected ? 'Deselect this document' : 'Select for batch .docx download'}
+                      >
+                        <Check className="w-3 h-3 stroke-[3]" />
+                      </button>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <FileText className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-[#00FF66]' : 'text-[#FF003C]'}`} />
+                          <span className="text-xs font-bold text-white truncate group-hover:text-[#00FF66] transition-colors">
+                            {item.title}
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
                     {item.fidelityScore && (
@@ -403,7 +732,10 @@ export const ConversionHistory: React.FC = () => {
                 </div>
 
                 {/* Action Toolbar */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-neutral-900">
+                <div 
+                  className="flex items-center justify-between gap-1.5 pt-2 border-t border-neutral-900"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <CyberButton
                     variant="primary"
                     size="sm"
@@ -412,10 +744,26 @@ export const ConversionHistory: React.FC = () => {
                       cyberAudio.playCyberClick();
                       loadHistoryItem(item);
                     }}
-                    className="!py-1 !px-2.5 !text-[10px] flex-1"
+                    className="!py-1 !px-2 !text-[10px] flex-1"
                   >
-                    LOAD WORKSPACE
+                    LOAD
                   </CyberButton>
+
+                  {/* Single .DOCX Download Quick Button */}
+                  <button
+                    type="button"
+                    disabled={isDownloadingDocx}
+                    onClick={() => handleDownloadSingleDocx(item)}
+                    className="p-1.5 rounded border border-neutral-800 bg-neutral-900 text-neutral-300 hover:border-[#00FF66]/60 hover:text-[#00FF66] text-[10px] transition-colors flex items-center gap-1"
+                    title="Download formatted .docx Word document"
+                  >
+                    {isDownloadingDocx ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#00FF66]" />
+                    ) : (
+                      <FileDown className="w-3.5 h-3.5" />
+                    )}
+                    <span className="hidden sm:inline">.DOCX</span>
+                  </button>
 
                   <button
                     onClick={() => handleCopyGoogleDocsHtml(item.id, item.title, item.htmlContent)}
@@ -429,12 +777,12 @@ export const ConversionHistory: React.FC = () => {
                     {isCopied ? (
                       <>
                         <Check className="w-3.5 h-3.5" />
-                        <span>COPIED</span>
+                        <span className="hidden sm:inline">COPIED</span>
                       </>
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5" />
-                        <span>COPY</span>
+                        <span className="hidden sm:inline">COPY</span>
                       </>
                     )}
                   </button>
@@ -443,6 +791,7 @@ export const ConversionHistory: React.FC = () => {
                     onClick={() => {
                       cyberAudio.playAlertBuzz();
                       deleteHistoryItem(item.id);
+                      setSelectedIds((prev) => prev.filter((id) => id !== item.id));
                     }}
                     className="p-1.5 rounded border border-neutral-800 bg-neutral-900 text-neutral-500 hover:text-rose-400 hover:border-rose-900 transition-colors"
                     title="Delete record from history"
@@ -458,4 +807,4 @@ export const ConversionHistory: React.FC = () => {
     </section>
   );
 };
-// ===== END NEW CODE: PERSISTENT UPLOADED PDF HISTORY ARCHIVE WITH FILENAME SEARCH =====
+// ===== END NEW CODE: PERSISTENT UPLOADED PDF HISTORY ARCHIVE WITH BATCH SELECTION & ZIPPED .DOCX EXPORT =====

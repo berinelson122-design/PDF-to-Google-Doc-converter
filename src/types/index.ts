@@ -35,6 +35,26 @@ export interface ConversionResult {
   googleDocsBatchUpdates?: any[];
 }
 
+export interface PdfTechnicalMetadata {
+  creatorTool?: string;
+  producer?: string;
+  creationDate?: string;
+  modificationDate?: string;
+  title?: string;
+  author?: string;
+  subject?: string;
+  keywords?: string[];
+  pageCount: number;
+  pdfVersion?: string;
+  isEncrypted: boolean;
+  securitySettings?: {
+    allowsPrinting: boolean;
+    allowsCopying: boolean;
+    allowsModifying: boolean;
+  };
+  fileSizeBytes: number;
+}
+
 export interface PdfDocument {
   id: string;
   name: string;
@@ -43,6 +63,7 @@ export interface PdfDocument {
   pageCount: number;
   uploadedAt: number;
   previewUrl?: string;
+  technicalMetadata?: PdfTechnicalMetadata;
 }
 
 export interface QueueItem {
@@ -74,6 +95,7 @@ export interface ConversionHistoryItem {
   fidelityScore?: number;
   status: 'success' | 'failed';
   base64Data?: string;
+  technicalMetadata?: PdfTechnicalMetadata;
 }
 
 export interface DeviceControlConfig {
@@ -86,6 +108,7 @@ export interface DeviceControlConfig {
   gamepadDeadzone: number;
   gamepadSensitivity: number;
   activeScreenIndex: number;
+  autoSaveDraft?: boolean;
 }
 
 export interface UserSubscription {
@@ -122,4 +145,29 @@ export interface SavedConversionRecord {
     uploadedAt: number;
     base64Data?: string;
   };
+}
+
+export type ExportDocumentFormat = 'docx' | 'md' | 'txt';
+
+export interface ComplexPhraseItem {
+  phrase: string;
+  suggestion: string;
+  category: 'wordy' | 'passive' | 'jargon' | 'redundant' | 'complex';
+  explanation: string;
+  contextSnippet?: string;
+}
+
+export interface ReadabilityMetrics {
+  fleschKincaidGradeLevel: number;
+  fleschReadingEase: number;
+  readingLevelLabel: string;
+  interpretation: string;
+  totalWords: number;
+  totalSentences: number;
+  totalSyllables: number;
+  avgSentenceLength: number;
+  avgSyllablesPerWord: number;
+  complexWordsCount: number;
+  complexWordsPercentage: number;
+  complexPhrases: ComplexPhraseItem[];
 }

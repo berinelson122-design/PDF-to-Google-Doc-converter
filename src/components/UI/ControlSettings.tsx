@@ -1,5 +1,5 @@
 import React from 'react';
-import { Monitor, Smartphone, Gamepad2, Volume2, VolumeX, Vibrate, Sliders } from 'lucide-react';
+import { Monitor, Smartphone, Gamepad2, Volume2, VolumeX, Vibrate, Sliders, Save } from 'lucide-react';
 import { useInputStore } from '../../store/useInputStore.ts';
 import { DeviceType } from '../../types/index.ts';
 import { CyberButton } from '../common/CyberButton.tsx';
@@ -8,7 +8,13 @@ import { useGameStore } from '../../store/useGameStore.ts';
 
 // ===== START NEW CODE: CROSS-DEVICE CONTROL SETTINGS (PC / MOBILE / CONSOLE) =====
 export const ControlSettings: React.FC = () => {
-  const { isSettingsOpen, openSettings } = useGameStore();
+  const { 
+    isSettingsOpen, 
+    openSettings, 
+    isAutoSaveEnabled, 
+    toggleAutoSaveDraft, 
+    lastAutoSavedAt 
+  } = useGameStore();
   const { 
     config, 
     setDevice, 
@@ -82,7 +88,7 @@ export const ControlSettings: React.FC = () => {
           </div>
         )}
 
-        // ===== START NEW CODE: MOBILE TOUCHSCREEN CALIBRATION (NO JOYSTICK) =====
+        {/* ===== START NEW CODE: MOBILE TOUCHSCREEN CALIBRATION (NO JOYSTICK) ===== */}
         {config.device === 'mobile' && (
           <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-3.5">
             <div className="flex items-center justify-between">
@@ -114,7 +120,7 @@ export const ControlSettings: React.FC = () => {
             </div>
           </div>
         )}
-        // ===== END NEW CODE: MOBILE TOUCHSCREEN CALIBRATION (NO JOYSTICK) =====
+        {/* ===== END NEW CODE: MOBILE TOUCHSCREEN CALIBRATION (NO JOYSTICK) ===== */}
 
         {config.device === 'console' && (
           <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-4">
@@ -145,6 +151,48 @@ export const ControlSettings: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* ===== START NEW CODE: DRAFT AUTO-SAVE TO LOCAL STORAGE TOGGLE ===== */}
+        <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase text-white">
+              <Save className={`w-4 h-4 ${isAutoSaveEnabled ? 'text-emerald-400' : 'text-neutral-500'}`} />
+              <span>Draft Auto-save (Local Storage)</span>
+            </div>
+            <button
+              type="button"
+              onClick={toggleAutoSaveDraft}
+              className={`px-3 py-1.5 text-xs font-mono font-bold border rounded transition-all flex items-center gap-1.5 min-h-[44px] sm:min-h-0 ${
+                isAutoSaveEnabled
+                  ? 'border-emerald-500 text-emerald-400 bg-emerald-950/40 shadow-[0_0_10px_rgba(16,185,129,0.25)]'
+                  : 'border-neutral-700 text-neutral-500 bg-neutral-900/60 hover:border-neutral-600'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${isAutoSaveEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-600'}`} />
+              {isAutoSaveEnabled ? 'ENABLED' : 'DISABLED'}
+            </button>
+          </div>
+
+          <p className="text-[11px] text-neutral-400 leading-relaxed font-mono">
+            Automatically caches active document edits, structural text changes, and table modifications to browser local storage periodically.
+          </p>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-neutral-900 text-[10px] text-neutral-500 font-mono">
+            <span className="flex items-center gap-1.5">
+              <span className="text-neutral-400">INTERVAL:</span>
+              <span className="text-[#E056FD] font-bold">3000ms PERIODIC TICK</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="text-neutral-400">TELEMETRY:</span>
+              <span className={isAutoSaveEnabled ? 'text-emerald-400 font-bold' : 'text-neutral-600'}>
+                {isAutoSaveEnabled
+                  ? (lastAutoSavedAt ? `LAST SYNC: ${new Date(lastAutoSavedAt).toLocaleTimeString()}` : 'STANDBY // READY')
+                  : 'AUTOSAVE PAUSED'}
+              </span>
+            </span>
+          </div>
+        </div>
+        {/* ===== END NEW CODE: DRAFT AUTO-SAVE TO LOCAL STORAGE TOGGLE ===== */}
 
         {/* Global Feedback & Audio Bus */}
         <div className="space-y-3 pt-2 border-t border-neutral-800">
