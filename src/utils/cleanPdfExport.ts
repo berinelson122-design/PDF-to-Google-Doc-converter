@@ -6,6 +6,8 @@ export interface CleanPdfExportOptions {
   title?: string;
   author?: string;
   subject?: string;
+  isPrintFriendly?: boolean;
+  watermarkText?: string;
 }
 
 /**
@@ -242,6 +244,39 @@ export async function exportToCleanPdf(
     : (doc.internal.pages ? doc.internal.pages.length - 1 : 1);
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
+
+    // Render Print Watermark & Corner Bleed Crop Marks if Print-Friendly is enabled
+    if (options.isPrintFriendly || options.watermarkText) {
+      const wText = options.watermarkText || 'OFFICIAL PRINT COPY // DRAFT';
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(26);
+      doc.setTextColor(220, 225, 230);
+      try {
+        doc.text(wText, pageWidth / 2, pageHeight / 2, {
+          align: 'center',
+          angle: 325,
+        });
+      } catch (e) {
+        doc.text(wText, pageWidth / 4, pageHeight / 2);
+      }
+
+      // Draw 4 physical print corner bleed crop marks
+      doc.setDrawColor(20, 20, 20);
+      doc.setLineWidth(1);
+      // Top-Left crop mark
+      doc.line(12, 22, 32, 22);
+      doc.line(22, 12, 22, 32);
+      // Top-Right crop mark
+      doc.line(pageWidth - 32, 22, pageWidth - 12, 22);
+      doc.line(pageWidth - 22, 12, pageWidth - 22, 32);
+      // Bottom-Left crop mark
+      doc.line(12, pageHeight - 22, 32, pageHeight - 22);
+      doc.line(22, pageHeight - 32, 22, pageHeight - 12);
+      // Bottom-Right crop mark
+      doc.line(pageWidth - 32, pageHeight - 22, pageWidth - 12, pageHeight - 22);
+      doc.line(pageWidth - 22, pageHeight - 32, pageWidth - 22, pageHeight - 12);
+    }
+
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(140, 140, 140);

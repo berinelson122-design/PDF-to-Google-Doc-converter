@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Columns2, 
   FileText, 
@@ -17,16 +17,21 @@ import {
   Contrast,
   Table as TableIcon,
   Copy,
-  Check
+  Check,
+  Wand2,
+  ListTree
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { LiveDocPreview } from './LiveDocPreview.tsx';
 import { ReadabilityReport } from './ReadabilityReport.tsx';
 import { CustomTableColumnMapperModal, DetectedTableSchema } from './CustomTableColumnMapperModal.tsx';
+import { TableOfContents } from './TableOfContents.tsx';
 import { CyberBadge } from '../common/CyberBadge.tsx';
 import { CyberButton } from '../common/CyberButton.tsx';
 import { cyberAudio } from '../../utils/audioSynth.ts';
 import { GeminiModelPreference } from '../../types/index.ts';
+import { quickCleanHeadersFooters } from '../../utils/documentCleaner.ts';
+import { analyzeDocumentStructure } from '../../utils/tableOfContentsAnalyzer.ts';
 
 // ===== START NEW CODE: COMPARISON VIEW WITH FULLSCREEN DISTRACTION-FREE & MODEL CASCADE =====
 
@@ -37,6 +42,7 @@ export const ComparisonView: React.FC = () => {
     viewMode, 
     setViewMode, 
     editedHtml,
+    setEditedHtml,
     savedConversions,
     activeSavedConversionId,
     loadSavedConversion,
@@ -58,6 +64,32 @@ export const ComparisonView: React.FC = () => {
   const [highlightTables, setHighlightTables] = useState(false);
   const [highlightTypography, setHighlightTypography] = useState(false);
   const [copyTextSuccess, setCopyTextSuccess] = useState(false);
+  const [quickCleanStatus, setQuickCleanStatus] = useState<string | null>(null);
+
+  const handleQuickClean = () => {
+    try {
+      cyberAudio.playButtonAction();
+      const currentDocHtml = editedHtml || result?.htmlContent || '';
+      if (!currentDocHtml) {
+        cyberAudio.playAlertBuzz();
+        return;
+      }
+
+      const { cleanedHtml, totalRemovedCount } = quickCleanHeadersFooters(currentDocHtml);
+      setEditedHtml(cleanedHtml);
+      cyberAudio.playSuccessChime();
+
+      const statusMsg = totalRemovedCount > 0 
+        ? `CLEANED ${totalRemovedCount} ITEM${totalRemovedCount > 1 ? 'S' : ''}!`
+        : 'CLEANED (NO HEADERS)';
+      
+      setQuickCleanStatus(statusMsg);
+      setTimeout(() => setQuickCleanStatus(null), 2500);
+    } catch (err) {
+      console.error('Quick clean error:', err);
+      cyberAudio.playAlertBuzz();
+    }
+  };
 
   // Global Escape key handler to exit fullscreen
   useEffect(() => {
@@ -102,6 +134,18 @@ export const ComparisonView: React.FC = () => {
   const dynamicCharNoSpaces = cleanDocumentText.replace(/\s/g, '').length;
   const estimatedReadTimeMinutes = Math.max(1, Math.ceil(dynamicWordCount / 200));
   // ===== END NEW CODE: REAL-TIME DYNAMIC WORD & CHARACTER COUNT CALCULATOR =====
+
+  // ===== START NEW CODE: INTERACTIVE TABLE OF CONTENTS STATE & AUTO-ANALYSIS =====
+  const currentDocHtml = editedHtml || result?.htmlContent || '';
+  const tocMetadata = useMemo(() => {
+    return analyzeDocumentStructure(currentDocHtml, { minPagesForAutoToc: 5 });
+  }, [currentDocHtml]);
+
+  const [isTocManuallyToggled, setIsTocManuallyToggled] = useState<boolean | null>(null);
+
+  // Automatically show TOC if document exceeds 5 pages, unless user explicitly toggled it
+  const isTocVisible = isTocManuallyToggled !== null ? isTocManuallyToggled : tocMetadata.isEligibleForAutoToc;
+  // ===== END NEW CODE: INTERACTIVE TABLE OF CONTENTS STATE & AUTO-ANALYSIS =====
 
   const containerClasses = isFullscreen
     ? 'fixed inset-0 z-50 bg-[#000000] p-2 sm:p-4 flex flex-col h-screen w-screen overflow-hidden'
@@ -217,6 +261,21 @@ export const ComparisonView: React.FC = () => {
             </div>
           )}
 
+          {/* Quick Clean Button: Removes headers, footers & page numbers */}
+          <button
+            id="btn-quick-clean-doc"
+            onClick={handleQuickClean}
+            className={`px-2.5 py-1 text-xs font-mono rounded border flex items-center gap-1.5 font-bold transition-all shrink-0 ${
+              quickCleanStatus
+                ? 'bg-[#FF003C] text-white border-[#FF003C] shadow-[0_0_12px_rgba(255,0,60,0.6)] font-extrabold animate-pulse'
+                : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:text-white hover:border-[#FF003C]'
+            }`}
+            title="Automatically strip document headers, footers, and page numbers before Google Doc export"
+          >
+            <Wand2 className="w-3.5 h-3.5 text-[#FF003C]" />
+            <span>{quickCleanStatus ? quickCleanStatus : 'QUICK CLEAN'}</span>
+          </button>
+
           {/* Copy Plain Text Content Button */}
           <button
             id="btn-copy-plain-text"
@@ -260,6 +319,40 @@ export const ComparisonView: React.FC = () => {
           >
             <Contrast className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden sm:inline">HIGH CONTRAST</span>
+          </button>
+
+          {/* Table of Contents Toggle Button */}
+          <button
+            id="btn-toc-toggle"
+            onClick={() => {
+              cyberAudio.playCyberClick();
+              setIsTocManuallyToggled(!isTocVisible);
+            }}
+            className={`px-2.5 py-1 text-xs font-mono rounded border flex items-center gap-1.5 font-bold transition-all shrink-0 ${
+              isTocVisible
+                ? 'bg-[#FF003C] text-white border-[#FF003C] shadow-[0_0_10px_rgba(255,0,60,0.5)]'
+                : tocMetadata.isEligibleForAutoToc
+                ? 'bg-red-950/40 border-[#FF003C] text-[#FF003C] hover:bg-[#FF003C]/20 animate-pulse'
+                : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:text-white hover:border-[#FF003C]'
+            }`}
+            title={
+              tocMetadata.isEligibleForAutoToc
+                ? `Long-Form Document (${tocMetadata.totalPages} pages, ${tocMetadata.totalHeadings} headings) - Auto TOC Active`
+                : 'Toggle Interactive Table of Contents outline'
+            }
+          >
+            <ListTree className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">TOC</span>
+            {tocMetadata.totalHeadings > 0 && (
+              <span className="text-[10px] px-1 py-0.2 rounded bg-black/50 border border-white/20">
+                {tocMetadata.totalHeadings}
+              </span>
+            )}
+            {tocMetadata.isEligibleForAutoToc && (
+              <span className="hidden md:inline text-[8.5px] text-amber-300 font-extrabold uppercase">
+                &gt;5 PGS
+              </span>
+            )}
           </button>
 
           {/* Fullscreen Toggle Button */}
@@ -316,39 +409,53 @@ export const ComparisonView: React.FC = () => {
       )}
 
       {/* Main Viewport Container */}
-      <div className="flex-1 min-h-[500px] relative overflow-hidden flex flex-col">
-        {viewMode === 'split' && (
-          <div className="h-full">
-            <LiveDocPreview />
-          </div>
-        )}
-
-        {viewMode === 'doc_only' && (
-          <div className="h-full">
-            <LiveDocPreview />
-          </div>
-        )}
-
-        {viewMode === 'code' && (
-          <div className="h-full bg-[#0A0A0C] border border-neutral-800 rounded p-4 font-mono text-xs text-neutral-300 overflow-y-auto">
-            <div className="flex justify-between items-center mb-3 pb-2 border-b border-neutral-800">
-              <span className="text-[#FF003C] font-bold">SEMANTIC GOOGLE DOCS HTML PAYLOAD</span>
-              <span className="text-neutral-500 text-[10px]">READY FOR CLIPBOARD & API</span>
-            </div>
-            <pre className="p-4 bg-black rounded border border-neutral-800 text-emerald-400 overflow-x-auto whitespace-pre-wrap">
-              {editedHtml || result?.htmlContent || '<!-- No document loaded -->'}
-            </pre>
-          </div>
-        )}
-
-        {viewMode === 'readability' && (
-          <div className="h-full overflow-y-auto">
-            <ReadabilityReport 
-              content={editedHtml || result?.htmlContent || ''} 
-              documentTitle={result?.documentTitle || currentPdf?.name} 
+      <div className="flex-1 min-h-[500px] relative overflow-hidden flex flex-col md:flex-row gap-2">
+        {/* Table of Contents Panel (Auto-generated for >5 pages or toggled) */}
+        {isTocVisible && (viewMode === 'split' || viewMode === 'doc_only') && (
+          <div className="w-full md:w-72 lg:w-80 h-auto md:h-full shrink-0 flex flex-col transition-all duration-300 z-10">
+            <TableOfContents
+              htmlContent={currentDocHtml}
+              documentTitle={result?.documentTitle || currentPdf?.name}
+              className="h-full"
+              onClose={() => setIsTocManuallyToggled(false)}
             />
           </div>
         )}
+
+        <div className="flex-1 min-w-0 h-full relative overflow-hidden flex flex-col">
+          {viewMode === 'split' && (
+            <div className="h-full">
+              <LiveDocPreview />
+            </div>
+          )}
+
+          {viewMode === 'doc_only' && (
+            <div className="h-full">
+              <LiveDocPreview />
+            </div>
+          )}
+
+          {viewMode === 'code' && (
+            <div className="h-full bg-[#0A0A0C] border border-neutral-800 rounded p-4 font-mono text-xs text-neutral-300 overflow-y-auto">
+              <div className="flex justify-between items-center mb-3 pb-2 border-b border-neutral-800">
+                <span className="text-[#FF003C] font-bold">SEMANTIC GOOGLE DOCS HTML PAYLOAD</span>
+                <span className="text-neutral-500 text-[10px]">READY FOR CLIPBOARD & API</span>
+              </div>
+              <pre className="p-4 bg-black rounded border border-neutral-800 text-emerald-400 overflow-x-auto whitespace-pre-wrap">
+                {editedHtml || result?.htmlContent || '<!-- No document loaded -->'}
+              </pre>
+            </div>
+          )}
+
+          {viewMode === 'readability' && (
+            <div className="h-full overflow-y-auto">
+              <ReadabilityReport 
+                content={editedHtml || result?.htmlContent || ''} 
+                documentTitle={result?.documentTitle || currentPdf?.name} 
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ===== START NEW CODE: DYNAMIC WORD AND CHARACTER COUNT FOOTER INDICATOR ===== */}

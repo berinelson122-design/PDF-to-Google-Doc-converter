@@ -92,6 +92,7 @@ export function classifyDocument(title: string = '', content: string = ''): Clas
     Invoice: 0,
     Contract: 0,
     Financial: 0,
+    Technical: 0,
     General: 0,
   };
 
@@ -104,6 +105,7 @@ export function classifyDocument(title: string = '', content: string = ''): Clas
     Invoice: [],
     Contract: [],
     Financial: [],
+    Technical: [],
     General: [],
   };
 

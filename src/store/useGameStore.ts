@@ -385,6 +385,93 @@ const DEFAULT_SEED_DOCUMENTS: ConversionHistoryItem[] = [
       </div>
     </div>`,
     markdownContent: '# Q3 CYBER TELEMETRY AUDIT\n\nLatency verified at Sub-15ms.'
+  },
+  {
+    id: 'seed_enterprise_spec_8page',
+    title: 'Enterprise-Cyber-Architecture-Specification',
+    originalFileName: 'Enterprise-Cyber-Architecture-Specification.pdf',
+    fileSize: 1240000,
+    timestamp: Date.now() - 1000 * 60 * 30,
+    pageCount: 8,
+    tablesCount: 3,
+    headingsCount: 12,
+    category: 'Technical',
+    tags: ['Technical', 'Long-Form', 'Architecture', 'Specification'],
+    status: 'success',
+    fidelityScore: 99.8,
+    htmlContent: `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 800px; margin: 0 auto;">
+      <h1 style="font-size: 24pt; font-weight: 800; color: #111827; border-bottom: 3px solid #FF003C; padding-bottom: 12px; margin-bottom: 8px;">ENTERPRISE CYBER ARCHITECTURE SPECIFICATION</h1>
+      <p style="font-size: 11pt; color: #4b5563; margin-bottom: 16px;">Standard Technical Blueprint for High-Throughput Optical Neural Parsing, Real-Time Bidirectional Synchronization, and Zero-Trust Document Pipelines.</p>
+
+      <h2 style="font-size: 15pt; color: #1f2937; margin-top: 20px; margin-bottom: 8px;">1. Executive Summary &amp; Architectural Objectives</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">This document establishes the official engineering guidelines for document reconstruction, vector typography replication, and Google Docs API schema fidelity on M2 Silicon edge hardware.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 15pt; color: #1f2937; margin-top: 18px; margin-bottom: 8px;">2. Low-Latency Neural Ingestion Engine</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 10px;">The optical character recognition pipeline processes multi-page PDF documents through a cascading model topology.</p>
+      <h3 style="font-size: 12pt; color: #374151; margin-top: 14px; margin-bottom: 6px;">2.1 Model Routing &amp; Latency Profiles</h3>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">Sub-15ms regional edge gateways guarantee zero loss in structural hierarchy across arbitrary page geometries.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 15pt; color: #1f2937; margin-top: 18px; margin-bottom: 8px;">3. Multi-Column &amp; Complex Table Extraction</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">Tables spanning page boundaries are normalized into semantic HTML matrix elements with synchronized border styles.</p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 10pt; margin: 12px 0;">
+        <thead>
+          <tr style="background-color: #f3f4f6;">
+            <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Pipeline Component</th>
+            <th style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">Target Execution</th>
+            <th style="border: 1px solid #d1d5db; padding: 8px; text-align: right;">Fidelity Threshold</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="border: 1px solid #d1d5db; padding: 8px;">Tabular Grid Decomposer</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">4.2 ms</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: right; color: #059669;">99.8%</td>
+          </tr>
+          <tr style="background-color: #f9fafb;">
+            <td style="border: 1px solid #d1d5db; padding: 8px;">Vector Shape Extractor</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">6.1 ms</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: right; color: #059669;">99.4%</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 15pt; color: #1f2937; margin-top: 18px; margin-bottom: 8px;">4. Typography &amp; Font Matching Hierarchy</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 10px;">Optical character metrics automatically map embedded Type 1 and TrueType postscript glyphs to universally supported Google Docs core typography families.</p>
+      <h3 style="font-size: 12pt; color: #374151; margin-top: 12px; margin-bottom: 6px;">4.1 Proportional Kerning &amp; Line Heights</h3>
+      <p style="font-size: 10pt; color: #4b5563;">Maintains optical step ratios of at least 1.25 for crisp document readability.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 15pt; color: #1f2937; margin-top: 18px; margin-bottom: 8px;">5. Google Workspace API &amp; Drive Integration</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">The bidirectional clipboard and REST dispatchers format payloads for single-click insertion directly into Google Docs.</p>
+      <h3 style="font-size: 12pt; color: #374151; margin-top: 12px; margin-bottom: 6px;">5.1 OAuth Token Lifecycle Management</h3>
+      <p style="font-size: 10pt; color: #4b5563;">Tokens are safely managed client-side with zero exposure to external telemetry.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 15pt; color: #1f2937; margin-top: 18px; margin-bottom: 8px;">6. Internationalization &amp; Neural Translation</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">Automatic language detection identifies source scripts and enables localized exports preserving native layout geometry.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 15pt; color: #1f2937; margin-top: 18px; margin-bottom: 8px;">7. Security, Compliance &amp; Local Isolation</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">Local-first memory isolation ensures that sensitive client documents never leak beyond the container boundary.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 15pt; color: #1f2937; margin-top: 18px; margin-bottom: 8px;">8. System Architecture Sign-Off &amp; Audit Log</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 24px;">All criteria verified and authorized for production deployment.</p>
+      <div style="border-top: 1px solid #cbd5e1; width: 260px; padding-top: 8px; font-size: 10pt; color: #4b5563;">
+        ARCHITECT // VOID_WEAVER<br />Lead Systems Architect
+      </div>
+    </div>`,
+    markdownContent: '# ENTERPRISE CYBER ARCHITECTURE SPECIFICATION\n\n8-Page Long-form Technical Specification.'
   }
 ];
 
@@ -592,6 +679,12 @@ export interface GameStoreState {
   applyCustomTableColumnMapping: (updatedTables: any[]) => void;
   // ===== END NEW CODE: HIGH CONTRAST & CUSTOM TABLE MAPPING STATE =====
 
+  // ===== START NEW CODE: INTERACTIVE TABLE OF CONTENTS STATE =====
+  isTocPanelOpen: boolean;
+  setIsTocPanelOpen: (open: boolean) => void;
+  toggleTocPanel: () => void;
+  // ===== END NEW CODE: INTERACTIVE TABLE OF CONTENTS STATE =====
+
   // Actions
   setPdf: (pdf: PdfDocument | null) => void;
   setStatus: (status: ConversionStatus, message?: string, progress?: number) => void;
@@ -754,6 +847,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set(() => ({ editedHtml: modifiedHtml }));
   },
   // ===== END NEW CODE: HIGH CONTRAST & CUSTOM TABLE MAPPING IMPLEMENTATION =====
+
+  // ===== START NEW CODE: INTERACTIVE TABLE OF CONTENTS IMPLEMENTATION =====
+  isTocPanelOpen: false,
+  setIsTocPanelOpen: (open: boolean) => set(() => ({ isTocPanelOpen: open })),
+  toggleTocPanel: () => set((state) => ({ isTocPanelOpen: !state.isTocPanelOpen })),
+  // ===== END NEW CODE: INTERACTIVE TABLE OF CONTENTS IMPLEMENTATION =====
 
   // ===== START NEW CODE: LANGUAGE DETECTION, TRANSLATION & WEB SPEECH API TTS IMPLEMENTATION =====
   detectedLanguage: initialDetectedLanguage,

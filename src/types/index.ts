@@ -226,7 +226,7 @@ export interface ReadabilityMetrics {
 }
 
 // ===== START NEW CODE: DOCUMENT CATEGORIZATION, THEME & BATCH RENAME TYPES =====
-export type DocumentCategory = 'Invoices' | 'Contracts' | 'Reports' | 'Legal' | 'Academic' | 'Invoice' | 'Contract' | 'Financial' | 'General';
+export type DocumentCategory = 'Invoices' | 'Contracts' | 'Reports' | 'Legal' | 'Academic' | 'Invoice' | 'Contract' | 'Financial' | 'Technical' | 'General';
 
 export type AppTheme = 'cyberpunk' | 'light';
 
@@ -306,5 +306,26 @@ export interface TranslationState {
   isOfferBannerDismissed: boolean;
 }
 // ===== END NEW CODE: LANGUAGE DETECTION, TRANSLATION & WEB SPEECH API TTS TYPES =====
+
+// ===== START NEW CODE: INTERACTIVE TABLE OF CONTENTS & DOCUMENT OUTLINE TYPES =====
+export interface TocEntry {
+  id: string;
+  title: string;
+  level: number; // 1 = H1, 2 = H2, 3 = H3, etc.
+  tag: string; // 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'section'
+  pageNumber: number; // 1-indexed page where this heading physically resides
+  wordCount: number; // approximate word count in this section before next heading
+  previewSnippet: string; // brief teaser of section text
+}
+
+export interface TocMetadata {
+  headings: TocEntry[];
+  totalPages: number;
+  isEligibleForAutoToc: boolean; // true when totalPages > 5
+  totalHeadings: number;
+  maxDepth: number;
+  estimatedReadMinutes: number;
+}
+// ===== END NEW CODE: INTERACTIVE TABLE OF CONTENTS & DOCUMENT OUTLINE TYPES =====
 
 

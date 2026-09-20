@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Download, 
   Copy, 
@@ -13,7 +13,8 @@ import {
   AlignLeft,
   BookOpen,
   Sparkles,
-  Table
+  Table,
+  Printer
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { CyberModal } from '../common/CyberModal.tsx';
@@ -27,6 +28,7 @@ import {
 import { exportToCleanPdf } from '../../utils/cleanPdfExport.ts';
 import { downloadSingleEpub } from '../../utils/epubExport.ts';
 import { exportTablesToCsv } from '../../utils/tableCsvExport.ts';
+import { transformToPrintFriendlyHtml } from '../../utils/printFriendlyTransformer.ts';
 import { cyberAudio } from '../../utils/audioSynth.ts';
 import { ExportDocumentFormat } from '../../types/index.ts';
 import { ExportThumbnailPreview } from './ExportThumbnailPreview.tsx';
@@ -50,11 +52,27 @@ export const DocxExportModal: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [uploadResult, setUploadResult] = useState<{ success: boolean; url?: string; error?: string } | null>(null);
 
+  // ===== START NEW CODE: PRINT-FRIENDLY TOGGLE & WATERMARK PREVIEW STATE =====
+  const [isPrintFriendly, setIsPrintFriendly] = useState<boolean>(false);
+  const [watermarkText, setWatermarkText] = useState<string>('OFFICIAL PRINT COPY // DRAFT');
+
   const activeHtml = editedHtml || result?.htmlContent || '';
+
+  const effectiveHtml = useMemo(() => {
+    if (isPrintFriendly) {
+      return transformToPrintFriendlyHtml(activeHtml, {
+        watermarkText,
+        removeBackgrounds: true,
+        addBleedGuides: true,
+      });
+    }
+    return activeHtml;
+  }, [activeHtml, isPrintFriendly, watermarkText]);
+  // ===== END NEW CODE: PRINT-FRIENDLY TOGGLE & WATERMARK PREVIEW STATE =====
 
   const handleCopy = async () => {
     cyberAudio.playButtonAction();
-    const success = await GoogleDocsService.copyForDocs(activeHtml, exportConfig.docTitle);
+    const success = await GoogleDocsService.copyForDocs(effectiveHtml, exportConfig.docTitle);
     if (success) {
       setCopied(true);
       cyberAudio.playSuccessChime();
@@ -74,17 +92,21 @@ export const DocxExportModal: React.FC = () => {
 
     try {
       if (selectedFormat === 'pdf') {
-        await exportToCleanPdf(activeHtml, { title: exportConfig.docTitle });
+        await exportToCleanPdf(effectiveHtml, { 
+          title: exportConfig.docTitle,
+          isPrintFriendly,
+          watermarkText
+        });
       } else if (selectedFormat === 'docx') {
-        await downloadSingleDocx(activeHtml, exportConfig.docTitle);
+        await downloadSingleDocx(effectiveHtml, exportConfig.docTitle);
       } else if (selectedFormat === 'epub') {
-        await downloadSingleEpub(activeHtml, exportConfig.docTitle);
+        await downloadSingleEpub(effectiveHtml, exportConfig.docTitle);
       } else if (selectedFormat === 'md') {
-        downloadSingleMarkdown(activeHtml, exportConfig.docTitle, result?.markdownContent);
+        downloadSingleMarkdown(effectiveHtml, exportConfig.docTitle, result?.markdownContent);
       } else if (selectedFormat === 'txt') {
-        downloadSinglePlainText(activeHtml, exportConfig.docTitle);
+        downloadSinglePlainText(effectiveHtml, exportConfig.docTitle);
       } else if (selectedFormat === 'csv') {
-        const res = exportTablesToCsv(activeHtml, exportConfig.docTitle);
+        const res = exportTablesToCsv(effectiveHtml, exportConfig.docTitle);
         if (!res.success) {
           alert('No structured <table> elements were found in this document payload.');
         }
@@ -102,7 +124,11 @@ export const DocxExportModal: React.FC = () => {
     cyberAudio.playButtonAction();
     setIsDownloading(true);
     try {
-      await exportToCleanPdf(activeHtml, { title: exportConfig.docTitle });
+      await exportToCleanPdf(effectiveHtml, { 
+        title: exportConfig.docTitle,
+        isPrintFriendly,
+        watermarkText
+      });
       cyberAudio.playSuccessChime();
     } catch (err) {
       console.error('Clean PDF export error:', err);
@@ -116,7 +142,7 @@ export const DocxExportModal: React.FC = () => {
     cyberAudio.playButtonAction();
     setIsDownloading(true);
     try {
-      await downloadSingleDocx(activeHtml, exportConfig.docTitle);
+      await downloadSingleDocx(effectiveHtml, exportConfig.docTitle);
       cyberAudio.playSuccessChime();
     } catch (err) {
       console.error('Docx download error:', err);
@@ -130,7 +156,7 @@ export const DocxExportModal: React.FC = () => {
     cyberAudio.playButtonAction();
     setIsDownloading(true);
     try {
-      await downloadSingleEpub(activeHtml, exportConfig.docTitle);
+      await downloadSingleEpub(effectiveHtml, exportConfig.docTitle);
       cyberAudio.playSuccessChime();
     } catch (err) {
       console.error('EPUB download error:', err);
@@ -142,19 +168,19 @@ export const DocxExportModal: React.FC = () => {
 
   const handleDownloadMd = () => {
     cyberAudio.playButtonAction();
-    downloadSingleMarkdown(activeHtml, exportConfig.docTitle, result?.markdownContent);
+    downloadSingleMarkdown(effectiveHtml, exportConfig.docTitle, result?.markdownContent);
     cyberAudio.playSuccessChime();
   };
 
   const handleDownloadTxt = () => {
     cyberAudio.playButtonAction();
-    downloadSinglePlainText(activeHtml, exportConfig.docTitle);
+    downloadSinglePlainText(effectiveHtml, exportConfig.docTitle);
     cyberAudio.playSuccessChime();
   };
 
   const handleDownloadHtml = () => {
     cyberAudio.playButtonAction();
-    GoogleDocsService.exportAsHtml(activeHtml, exportConfig.docTitle);
+    GoogleDocsService.exportAsHtml(effectiveHtml, exportConfig.docTitle);
   };
 
   const handleDriveUpload = async () => {
@@ -165,7 +191,7 @@ export const DocxExportModal: React.FC = () => {
 
     const res = await GoogleDocsService.uploadToGoogleDrive(
       googleAccessToken,
-      activeHtml,
+      effectiveHtml,
       exportConfig.docTitle
     );
 
@@ -259,10 +285,58 @@ export const DocxExportModal: React.FC = () => {
           />
         </div>
 
+        {/* ===== START NEW CODE: PRINT-FRIENDLY PREVIEW & EXPORT TOGGLE ===== */}
+        <div className="p-3.5 border border-neutral-800 bg-neutral-950 rounded space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isPrintFriendly}
+                onChange={(e) => {
+                  setIsPrintFriendly(e.target.checked);
+                  cyberAudio.playCyberClick();
+                }}
+                className="accent-[#FF003C] w-4 h-4 cursor-pointer rounded"
+              />
+              <Printer className="w-4 h-4 text-[#FF003C]" />
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                PHYSICAL PRINT-FRIENDLY MODE (WHITE BACKGROUND & BLEEDS)
+              </span>
+            </label>
+            <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
+              isPrintFriendly 
+                ? 'text-[#FF003C] border-[#FF003C]/40 bg-red-950/40 font-bold shadow-[0_0_8px_rgba(255,0,60,0.3)]'
+                : 'text-neutral-500 border-neutral-800 bg-black'
+            }`}>
+              {isPrintFriendly ? 'PRINT MODE ACTIVE' : 'STANDARD DISPLAY'}
+            </span>
+          </div>
+
+          <p className="text-[11px] text-neutral-400 leading-relaxed">
+            Removes ink-heavy dark background fills, inserts standard 0.125&quot; corner crop bleeds, and overlays a physical print watermark across exported PDFs and preview documents.
+          </p>
+
+          {isPrintFriendly && (
+            <div className="pt-2 border-t border-neutral-800/80 flex items-center gap-2">
+              <span className="text-[10px] font-mono text-neutral-400 shrink-0 uppercase font-bold">
+                WATERMARK TEXT:
+              </span>
+              <input
+                type="text"
+                value={watermarkText}
+                onChange={(e) => setWatermarkText(e.target.value)}
+                placeholder="e.g. OFFICIAL PRINT COPY // DRAFT"
+                className="flex-1 bg-black border border-neutral-800 focus:border-[#FF003C] rounded px-2.5 py-1 text-xs font-mono text-white outline-none"
+              />
+            </div>
+          )}
+        </div>
+        {/* ===== END NEW CODE: PRINT-FRIENDLY PREVIEW & EXPORT TOGGLE ===== */}
+
         {/* ===== START NEW CODE: DOCUMENT LAYOUT THUMBNAIL PREVIEW ===== */}
         {/* Real-time Document Layout Thumbnail Preview */}
         <ExportThumbnailPreview
-          htmlContent={activeHtml}
+          htmlContent={effectiveHtml}
           documentTitle={exportConfig.docTitle}
           selectedFormat={selectedFormat}
         />
