@@ -1,19 +1,22 @@
 import React from 'react';
-import { Monitor, Smartphone, Gamepad2, Volume2, VolumeX, Vibrate, Sliders, Save } from 'lucide-react';
+import { Monitor, Smartphone, Gamepad2, Volume2, VolumeX, Vibrate, Sliders, Save, Sun, Moon } from 'lucide-react';
 import { useInputStore } from '../../store/useInputStore.ts';
-import { DeviceType } from '../../types/index.ts';
+import { DeviceType, AppTheme } from '../../types/index.ts';
 import { CyberButton } from '../common/CyberButton.tsx';
 import { CyberModal } from '../common/CyberModal.tsx';
 import { useGameStore } from '../../store/useGameStore.ts';
+import { cyberAudio } from '../../utils/audioSynth.ts';
 
-// ===== START NEW CODE: CROSS-DEVICE CONTROL SETTINGS (PC / MOBILE / CONSOLE) =====
+// ===== START NEW CODE: CROSS-DEVICE CONTROL SETTINGS (PC / MOBILE / CONSOLE) & THEME SWITCHER =====
 export const ControlSettings: React.FC = () => {
   const { 
     isSettingsOpen, 
     openSettings, 
     isAutoSaveEnabled, 
     toggleAutoSaveDraft, 
-    lastAutoSavedAt 
+    lastAutoSavedAt,
+    appTheme,
+    setAppTheme
   } = useGameStore();
   const { 
     config, 
@@ -65,21 +68,113 @@ export const ControlSettings: React.FC = () => {
           </div>
         </div>
 
+        {/* ===== START NEW CODE: THEME SWITCHER (CYBERPUNK DARK VS HIGH-CONTRAST LIGHT MODE) ===== */}
+        <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase text-white">
+              {appTheme === 'light' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-[#E056FD]" />
+              )}
+              <span>Visual Interface Theme</span>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold border ${
+              appTheme === 'light'
+                ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
+                : 'bg-[#FF003C]/10 border-[#FF003C]/50 text-[#FF003C]'
+            }`}>
+              {appTheme === 'light' ? 'HIGH-CONTRAST LIGHT' : 'CYBERPUNK DARK'}
+            </span>
+          </div>
+
+          <p className="text-[11px] text-neutral-400 leading-relaxed font-mono">
+            Switch between the default Cyberpunk black-box aesthetic and a high-contrast Light Mode tailored for long reading sessions and printing.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                cyberAudio.playCyberClick();
+                setAppTheme('cyberpunk');
+              }}
+              className={`p-3 rounded border text-left flex flex-col justify-between gap-2 transition-all min-h-[44px] ${
+                appTheme === 'cyberpunk'
+                  ? 'border-[#FF003C] bg-[#FF003C]/10 shadow-[0_0_12px_rgba(255,0,60,0.25)]'
+                  : 'border-neutral-800 bg-neutral-900/60 hover:border-neutral-700'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Moon className="w-3.5 h-3.5 text-[#FF003C]" />
+                  CYBERPUNK
+                </span>
+                {appTheme === 'cyberpunk' && (
+                  <span className="w-2 h-2 rounded-full bg-[#FF003C] shadow-[0_0_6px_#FF003C]" />
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-[10px] text-neutral-400">
+                <span className="w-3 h-3 rounded-full bg-black border border-neutral-700" />
+                <span className="w-3 h-3 rounded-full bg-[#FF003C]" />
+                <span className="w-3 h-3 rounded-full bg-[#E056FD]" />
+                <span className="ml-1 text-[9px] text-neutral-500">Pure Black</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                cyberAudio.playSuccessChime();
+                setAppTheme('light');
+              }}
+              className={`p-3 rounded border text-left flex flex-col justify-between gap-2 transition-all min-h-[44px] ${
+                appTheme === 'light'
+                  ? 'border-amber-400 bg-amber-400/10 shadow-[0_0_12px_rgba(251,191,36,0.25)]'
+                  : 'border-neutral-800 bg-neutral-900/60 hover:border-neutral-700'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Sun className="w-3.5 h-3.5 text-amber-400" />
+                  LIGHT MODE
+                </span>
+                {appTheme === 'light' && (
+                  <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_6px_#FBBF24]" />
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-[10px] text-neutral-400">
+                <span className="w-3 h-3 rounded-full bg-white border border-neutral-300" />
+                <span className="w-3 h-3 rounded-full bg-[#0F172A]" />
+                <span className="w-3 h-3 rounded-full bg-[#D90429]" />
+                <span className="ml-1 text-[9px] text-neutral-500">High-Contrast</span>
+              </div>
+            </button>
+          </div>
+        </div>
+        {/* ===== END NEW CODE: THEME SWITCHER (CYBERPUNK DARK VS HIGH-CONTRAST LIGHT MODE) ===== */}
+
         {/* Device Specific Settings */}
         {config.device === 'pc' && (
           <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-2.5">
             <div className="flex items-center gap-2 text-[#FF003C] text-xs font-bold uppercase">
-              <Monitor className="w-4 h-4" /> PC Tactical Hotkeys
+              <Monitor className="w-4 h-4" /> PC Tactical Hotkeys &amp; Controls
             </div>
             <div className="grid grid-cols-2 gap-2 text-[11px] text-neutral-400">
               <div className="flex justify-between py-1 border-b border-neutral-900">
+                <span>Distraction-Free Fullscreen</span> <kbd className="text-[#FF003C] font-bold">F11 / Esc</kbd>
+              </div>
+              <div className="flex justify-between py-1 border-b border-neutral-900">
+                <span>Keyword Search Bar</span> <kbd className="text-[#FF003C] font-bold">Ctrl+F</kbd>
+              </div>
+              <div className="flex justify-between py-1 border-b border-neutral-900">
+                <span>Read Aloud (TTS Audio)</span> <kbd className="text-emerald-400 font-bold">Space / Audio</kbd>
+              </div>
+              <div className="flex justify-between py-1 border-b border-neutral-900">
+                <span>Translate Matrix</span> <kbd className="text-[#E056FD] font-bold">Translate Modal</kbd>
+              </div>
+              <div className="flex justify-between py-1 border-b border-neutral-900">
                 <span>Split Inspection</span> <kbd className="text-[#FF003C] font-bold">1</kbd>
-              </div>
-              <div className="flex justify-between py-1 border-b border-neutral-900">
-                <span>Google Doc Only</span> <kbd className="text-[#FF003C] font-bold">2</kbd>
-              </div>
-              <div className="flex justify-between py-1 border-b border-neutral-900">
-                <span>PDF Blueprint</span> <kbd className="text-[#FF003C] font-bold">3</kbd>
               </div>
               <div className="flex justify-between py-1 border-b border-neutral-900">
                 <span>Direct Export Modal</span> <kbd className="text-[#FF003C] font-bold">Ctrl+E</kbd>
@@ -93,7 +188,7 @@ export const ControlSettings: React.FC = () => {
           <div className="p-4 border border-neutral-800 bg-neutral-950 rounded space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-[#E056FD] text-xs font-bold uppercase">
-                <Smartphone className="w-4 h-4" /> Direct Touchscreen Calibration
+                <Smartphone className="w-4 h-4" /> Direct Touchscreen Calibration &amp; Mobile UI
               </div>
               <span className="text-[10px] px-2 py-0.5 rounded border border-emerald-500/60 text-emerald-400 bg-emerald-950/40 font-mono">
                 TOUCHSCREEN ACTIVE
@@ -104,6 +199,14 @@ export const ControlSettings: React.FC = () => {
               <div className="flex items-center justify-between py-1 border-b border-neutral-900">
                 <span>Native Swipe &amp; Pan</span>
                 <span className="text-emerald-400 font-bold">ENABLED (DIRECT)</span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-neutral-900">
+                <span>Text-to-Speech Playback Dock</span>
+                <span className="text-emerald-400 font-bold">MOBILE DOCKED</span>
+              </div>
+              <div className="flex items-center justify-between py-1 border-b border-neutral-900">
+                <span>Translation Matrix Modal</span>
+                <span className="text-[#E056FD] font-bold">TOUCH OPTIMIZED</span>
               </div>
               <div className="flex items-center justify-between py-1 border-b border-neutral-900">
                 <span>Multi-Touch Zoom</span>

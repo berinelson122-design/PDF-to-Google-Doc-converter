@@ -11,7 +11,9 @@ import {
   FileDown,
   FileCode,
   AlignLeft,
-  Sparkles
+  BookOpen,
+  Sparkles,
+  Table
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { CyberModal } from '../common/CyberModal.tsx';
@@ -22,10 +24,14 @@ import {
   downloadSingleMarkdown, 
   downloadSinglePlainText 
 } from '../../utils/docxExport.ts';
+import { exportToCleanPdf } from '../../utils/cleanPdfExport.ts';
+import { downloadSingleEpub } from '../../utils/epubExport.ts';
+import { exportTablesToCsv } from '../../utils/tableCsvExport.ts';
 import { cyberAudio } from '../../utils/audioSynth.ts';
 import { ExportDocumentFormat } from '../../types/index.ts';
+import { ExportThumbnailPreview } from './ExportThumbnailPreview.tsx';
 
-// ===== START NEW CODE: MULTI-FORMAT EXPORT PROTOCOL WITH RADIO SELECTION =====
+// ===== START NEW CODE: MULTI-FORMAT EXPORT PROTOCOL WITH RADIO SELECTION & EPUB SUPPORT =====
 export const DocxExportModal: React.FC = () => {
   const { 
     isExportModalOpen, 
@@ -67,16 +73,39 @@ export const DocxExportModal: React.FC = () => {
     setIsDownloading(true);
 
     try {
-      if (selectedFormat === 'docx') {
+      if (selectedFormat === 'pdf') {
+        await exportToCleanPdf(activeHtml, { title: exportConfig.docTitle });
+      } else if (selectedFormat === 'docx') {
         await downloadSingleDocx(activeHtml, exportConfig.docTitle);
+      } else if (selectedFormat === 'epub') {
+        await downloadSingleEpub(activeHtml, exportConfig.docTitle);
       } else if (selectedFormat === 'md') {
         downloadSingleMarkdown(activeHtml, exportConfig.docTitle, result?.markdownContent);
       } else if (selectedFormat === 'txt') {
         downloadSinglePlainText(activeHtml, exportConfig.docTitle);
+      } else if (selectedFormat === 'csv') {
+        const res = exportTablesToCsv(activeHtml, exportConfig.docTitle);
+        if (!res.success) {
+          alert('No structured <table> elements were found in this document payload.');
+        }
       }
       cyberAudio.playSuccessChime();
     } catch (err) {
       console.error('Export download error:', err);
+      cyberAudio.playAlertBuzz();
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    cyberAudio.playButtonAction();
+    setIsDownloading(true);
+    try {
+      await exportToCleanPdf(activeHtml, { title: exportConfig.docTitle });
+      cyberAudio.playSuccessChime();
+    } catch (err) {
+      console.error('Clean PDF export error:', err);
       cyberAudio.playAlertBuzz();
     } finally {
       setIsDownloading(false);
@@ -91,6 +120,20 @@ export const DocxExportModal: React.FC = () => {
       cyberAudio.playSuccessChime();
     } catch (err) {
       console.error('Docx download error:', err);
+      cyberAudio.playAlertBuzz();
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleDownloadEpub = async () => {
+    cyberAudio.playButtonAction();
+    setIsDownloading(true);
+    try {
+      await downloadSingleEpub(activeHtml, exportConfig.docTitle);
+      cyberAudio.playSuccessChime();
+    } catch (err) {
+      console.error('EPUB download error:', err);
       cyberAudio.playAlertBuzz();
     } finally {
       setIsDownloading(false);
@@ -138,6 +181,15 @@ export const DocxExportModal: React.FC = () => {
 
   const FORMAT_OPTIONS = [
     {
+      id: 'pdf' as ExportDocumentFormat,
+      label: 'Clean Reconstructed PDF (.pdf)',
+      ext: '.PDF',
+      icon: <FileDown className="w-4 h-4 text-[#FF003C]" />,
+      tag: 'SECURE CLEAN PDF',
+      tagColor: 'text-[#FF003C] border-red-500/40 bg-red-950/30',
+      description: 'Exports edited document into a clean, sanitized PDF with standard page margins, headers, and vector typography.',
+    },
+    {
       id: 'docx' as ExportDocumentFormat,
       label: 'Formatted Word Document (.docx)',
       ext: '.DOCX',
@@ -147,6 +199,15 @@ export const DocxExportModal: React.FC = () => {
       description: 'Preserves font families, cell borders, backgrounds, and full document structure.',
     },
     {
+      id: 'epub' as ExportDocumentFormat,
+      label: 'Digital E-Book Publication (.epub)',
+      ext: '.EPUB',
+      icon: <BookOpen className="w-4 h-4 text-cyan-400" />,
+      tag: 'EPUB 3 / E-READER',
+      tagColor: 'text-cyan-400 border-cyan-500/40 bg-cyan-950/30',
+      description: 'Reflowable e-book format with chapter TOC, structured metadata, and responsive e-reader formatting for Apple Books, Kindle, and Play Books.',
+    },
+    {
       id: 'md' as ExportDocumentFormat,
       label: 'Structured Markdown (.md)',
       ext: '.MD',
@@ -154,6 +215,15 @@ export const DocxExportModal: React.FC = () => {
       tag: 'GITHUB & DEVELOPER',
       tagColor: 'text-[#FF003C] border-red-500/40 bg-red-950/30',
       description: 'GitHub-flavored markdown syntax with pipe tables, bullet hierarchy, and bold markup.',
+    },
+    {
+      id: 'csv' as ExportDocumentFormat,
+      label: 'Table-Only CSV / Google Sheets (.csv)',
+      ext: '.CSV',
+      icon: <Table className="w-4 h-4 text-[#00FF66]" />,
+      tag: 'STRUCTURED DATA TABLES ONLY',
+      tagColor: 'text-[#00FF66] border-[#00FF66]/40 bg-emerald-950/30',
+      description: 'Strips out all narrative body text and extracts only structured data tables as clean CSV for Excel, Google Sheets, or database ingestion.',
     },
     {
       id: 'txt' as ExportDocumentFormat,
@@ -172,7 +242,7 @@ export const DocxExportModal: React.FC = () => {
       onClose={() => openExportModal(false)}
       title="EXPORT TO GOOGLE DOCS // PROTOCOL"
       subtitle="SEAMLESS GOOGLE WORKSPACE DISPATCH"
-      maxWidth="max-w-xl"
+      maxWidth="max-w-2xl lg:max-w-3xl"
     >
       <div className="space-y-6">
         {/* Document Title Config */}
@@ -188,6 +258,15 @@ export const DocxExportModal: React.FC = () => {
             placeholder="Document Name"
           />
         </div>
+
+        {/* ===== START NEW CODE: DOCUMENT LAYOUT THUMBNAIL PREVIEW ===== */}
+        {/* Real-time Document Layout Thumbnail Preview */}
+        <ExportThumbnailPreview
+          htmlContent={activeHtml}
+          documentTitle={exportConfig.docTitle}
+          selectedFormat={selectedFormat}
+        />
+        {/* ===== END NEW CODE: DOCUMENT LAYOUT THUMBNAIL PREVIEW ===== */}
 
         {/* Primary Method 1: One-Click Paste Bridge */}
         <div className="p-4 border border-[#FF003C]/50 bg-black/60 rounded space-y-3">
@@ -347,19 +426,35 @@ export const DocxExportModal: React.FC = () => {
             >
               {isDownloading 
                 ? 'GENERATING EXPORT...' 
-                : `EXPORT AS ${selectedFormat.toUpperCase()} (${selectedFormat === 'docx' ? '.DOCX' : selectedFormat === 'md' ? '.MD' : '.TXT'})`
+                : `EXPORT AS ${selectedFormat.toUpperCase()} (${selectedFormat === 'pdf' ? '.PDF' : selectedFormat === 'docx' ? '.DOCX' : selectedFormat === 'epub' ? '.EPUB' : selectedFormat === 'md' ? '.MD' : '.TXT'})`
               }
             </CyberButton>
 
             {/* Quick 1-Click Format Badges */}
-            <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end flex-wrap">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                className="px-2 py-1 bg-black border border-neutral-800 hover:border-[#FF003C] text-[10px] font-mono text-[#FF003C] rounded transition-colors font-bold"
+                title="Direct 1-Click Clean .PDF Download"
+              >
+                .PDF
+              </button>
               <button
                 type="button"
                 onClick={handleDownloadDocx}
-                className="px-2 py-1 bg-black border border-neutral-800 hover:border-emerald-500 text-[10px] font-mono text-emerald-400 rounded transition-colors"
+                className="px-2 py-1 bg-black border border-neutral-800 hover:border-emerald-500 text-[10px] font-mono text-emerald-400 rounded transition-colors font-bold"
                 title="Direct 1-Click .DOCX Download"
               >
                 .DOCX
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadEpub}
+                className="px-2 py-1 bg-black border border-neutral-800 hover:border-cyan-400 text-[10px] font-mono text-cyan-400 rounded transition-colors font-bold"
+                title="Direct 1-Click .EPUB E-Book Download"
+              >
+                .EPUB
               </button>
               <button
                 type="button"

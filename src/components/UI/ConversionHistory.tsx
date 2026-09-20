@@ -20,7 +20,11 @@ import {
   CheckSquare,
   Square,
   FileDown,
-  Loader2
+  Loader2,
+  Eye,
+  Edit3,
+  Tag,
+  Layers
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { 
@@ -36,6 +40,11 @@ import {
 } from '../../utils/docxExport.ts';
 import { CyberButton } from '../common/CyberButton.tsx';
 import { cyberAudio } from '../../utils/audioSynth.ts';
+import { DocumentCategory, BatchRenameConfig } from '../../types/index.ts';
+import { getCategoryBadgeStyle } from '../../utils/documentClassifier.ts';
+import { BatchPreviewModal } from './BatchPreviewModal.tsx';
+import { BatchRenameModal } from './BatchRenameModal.tsx';
+import { MergeDocsModal } from './MergeDocsModal.tsx';
 
 // ===== START NEW CODE: PERSISTENT UPLOADED PDF HISTORY ARCHIVE WITH BATCH SELECTION & ZIPPED .DOCX EXPORT =====
 export const ConversionHistory: React.FC = () => {
@@ -46,21 +55,27 @@ export const ConversionHistory: React.FC = () => {
     deleteHistoryItem, 
     clearHistory, 
     addToHistory, 
-    clearAllSessionData 
+    clearAllSessionData,
+    batchRenameHistoryItems,
+    updateHistoryItemCategory 
   } = useGameStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'tables' | 'today'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'tables' | 'today' | 'Invoices' | 'Contracts' | 'Reports'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isCsvExporting, setIsCsvExporting] = useState(false);
   const [csvSuccessMsg, setCsvSuccessMsg] = useState<string | null>(null);
   const [bulkDeleteSuccessMsg, setBulkDeleteSuccessMsg] = useState<string | null>(null);
+  const [renameSuccessMsg, setRenameSuccessMsg] = useState<string | null>(null);
 
-  // Batch selection states
+  // Batch selection and modal states
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isZipExporting, setIsZipExporting] = useState(false);
   const [zipProgress, setZipProgress] = useState<BatchZipProgress | null>(null);
   const [zipSuccessMsg, setZipSuccessMsg] = useState<string | null>(null);
   const [downloadingSingleDocxId, setDownloadingSingleDocxId] = useState<string | null>(null);
+  const [isBatchPreviewOpen, setIsBatchPreviewOpen] = useState(false);
+  const [isBatchRenameOpen, setIsBatchRenameOpen] = useState(false);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
 
   // Filter history strictly by filename and optional filter tags
   const filteredHistory = useMemo(() => {
@@ -82,10 +97,30 @@ export const ConversionHistory: React.FC = () => {
       if (filterType === 'today') {
         return item.timestamp >= startOfToday;
       }
+      if (filterType === 'Invoices') {
+        return item.category === 'Invoices';
+      }
+      if (filterType === 'Contracts') {
+        return item.category === 'Contracts';
+      }
+      if (filterType === 'Reports') {
+        return item.category === 'Reports';
+      }
 
       return true;
     });
   }, [history, searchQuery, filterType]);
+
+  // ===== START NEW CODE: BATCH RENAME APPLIER =====
+  const handleApplyBatchRename = (config: BatchRenameConfig) => {
+    if (selectedIds.length === 0) return;
+    batchRenameHistoryItems(selectedIds, config);
+    setRenameSuccessMsg(`Successfully renamed ${selectedIds.length} document${selectedIds.length > 1 ? 's' : ''}`);
+    setTimeout(() => {
+      setRenameSuccessMsg(null);
+    }, 4000);
+  };
+  // ===== END NEW CODE: BATCH RENAME APPLIER =====
 
   const totalSize = history.reduce((acc, curr) => acc + (curr.fileSize || 150000), 0);
 
@@ -386,6 +421,20 @@ export const ConversionHistory: React.FC = () => {
         </div>
       )}
 
+      {/* ===== START NEW CODE: BATCH RENAME SUCCESS FEEDBACK ===== */}
+      {renameSuccessMsg && (
+        <div className="p-2.5 bg-indigo-950/40 border border-indigo-500/60 rounded flex items-center justify-between gap-2 text-xs font-mono text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.25)] animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Edit3 className="w-4 h-4 text-indigo-400 shrink-0" />
+            <span className="font-bold">{renameSuccessMsg}</span>
+          </div>
+          <span className="text-[10px] text-indigo-400/90 uppercase font-mono tracking-wider font-bold">
+            METADATA UPDATED
+          </span>
+        </div>
+      )}
+      {/* ===== END NEW CODE: BATCH RENAME SUCCESS FEEDBACK ===== */}
+
       {/* ZIP Export Progress Indicator */}
       {isZipExporting && (
         <div className="p-3 bg-neutral-950 border border-[#00FF66]/50 rounded font-mono text-xs space-y-2 shadow-[0_0_15px_rgba(0,255,102,0.15)]">
@@ -480,27 +529,66 @@ export const ConversionHistory: React.FC = () => {
             >
               ALL ({history.length})
             </button>
+
+            {/* ===== START NEW CODE: AUTOMATED CATEGORY QUICK FILTERS ===== */}
+            <button
+              onClick={() => setFilterType('Invoices')}
+              className={`px-2 py-0.5 rounded text-[10px] border transition-colors flex items-center gap-1 ${
+                filterType === 'Invoices'
+                  ? 'bg-emerald-500 text-black border-emerald-500 font-bold shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+                  : 'bg-neutral-900 text-emerald-400/80 border-emerald-950/60 hover:border-emerald-700 hover:text-emerald-300'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              INVOICES ({history.filter((i) => i.category === 'Invoices').length})
+            </button>
+
+            <button
+              onClick={() => setFilterType('Contracts')}
+              className={`px-2 py-0.5 rounded text-[10px] border transition-colors flex items-center gap-1 ${
+                filterType === 'Contracts'
+                  ? 'bg-[#E056FD] text-black border-[#E056FD] font-bold shadow-[0_0_8px_rgba(224,86,253,0.4)]'
+                  : 'bg-neutral-900 text-[#E056FD]/80 border-[#E056FD]/30 hover:border-[#E056FD] hover:text-[#E056FD]'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E056FD]" />
+              CONTRACTS ({history.filter((i) => i.category === 'Contracts').length})
+            </button>
+
+            <button
+              onClick={() => setFilterType('Reports')}
+              className={`px-2 py-0.5 rounded text-[10px] border transition-colors flex items-center gap-1 ${
+                filterType === 'Reports'
+                  ? 'bg-cyan-500 text-black border-cyan-500 font-bold shadow-[0_0_8px_rgba(6,182,212,0.4)]'
+                  : 'bg-neutral-900 text-cyan-400/80 border-cyan-950/60 hover:border-cyan-700 hover:text-cyan-300'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              REPORTS ({history.filter((i) => i.category === 'Reports').length})
+            </button>
+            {/* ===== END NEW CODE: AUTOMATED CATEGORY QUICK FILTERS ===== */}
+
             <button
               onClick={() => setFilterType('tables')}
               className={`px-2 py-0.5 rounded text-[10px] border transition-colors flex items-center gap-1 ${
                 filterType === 'tables'
-                  ? 'bg-emerald-500 text-black border-emerald-500 font-bold'
-                  : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:border-emerald-700 hover:text-emerald-400'
+                  ? 'bg-neutral-300 text-black border-neutral-300 font-bold'
+                  : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:border-neutral-700 hover:text-neutral-200'
               }`}
             >
               <Table className="w-3 h-3" />
-              CONTAINS TABLES ({history.filter((i) => i.tablesCount > 0).length})
+              TABLES ({history.filter((i) => i.tablesCount > 0).length})
             </button>
             <button
               onClick={() => setFilterType('today')}
               className={`px-2 py-0.5 rounded text-[10px] border transition-colors flex items-center gap-1 ${
                 filterType === 'today'
-                  ? 'bg-[#E056FD] text-black border-[#E056FD] font-bold'
-                  : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:border-[#E056FD]/60 hover:text-[#E056FD]'
+                  ? 'bg-[#FF003C] text-white border-[#FF003C] font-bold'
+                  : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:border-[#FF003C]/60 hover:text-[#FF003C]'
               }`}
             >
               <Calendar className="w-3 h-3" />
-              UPLOADED TODAY
+              TODAY
             </button>
           </div>
         </div>
@@ -547,6 +635,56 @@ export const ConversionHistory: React.FC = () => {
           {/* Batch Actions when 1 or more items selected */}
           {selectedItems.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2">
+              {/* ===== START NEW CODE: MULTI-DOC MERGE TRIGGER ===== */}
+              {selectedItems.length >= 2 && (
+                <CyberButton
+                  variant="primary"
+                  size="sm"
+                  icon={<Layers className="w-3.5 h-3.5 text-[#00FF66]" />}
+                  onClick={() => {
+                    cyberAudio.playCyberClick();
+                    setIsMergeModalOpen(true);
+                  }}
+                  className="!text-[10px] !py-1.5 !px-3 font-bold shadow-[0_0_12px_rgba(0,255,102,0.35)]"
+                  title={`Merge ${selectedItems.length} selected Google Docs into a single document file`}
+                >
+                  MERGE DOCS ({selectedItems.length})
+                </CyberButton>
+              )}
+              {/* ===== END NEW CODE: MULTI-DOC MERGE TRIGGER ===== */}
+
+              {/* ===== START NEW CODE: BATCH PREVIEW MODAL TRIGGER ===== */}
+              <CyberButton
+                variant="outline"
+                size="sm"
+                icon={<Eye className="w-3.5 h-3.5 text-[#00FF66]" />}
+                onClick={() => {
+                  cyberAudio.playCyberClick();
+                  setIsBatchPreviewOpen(true);
+                }}
+                className="!text-[10px] !py-1.5 !px-3 font-bold border-[#00FF66]/60 text-white hover:bg-[#00FF66]/10"
+                title={`Inspect thumbnails & snippet previews for ${selectedItems.length} selected files`}
+              >
+                PREVIEW ({selectedItems.length})
+              </CyberButton>
+              {/* ===== END NEW CODE: BATCH PREVIEW MODAL TRIGGER ===== */}
+
+              {/* ===== START NEW CODE: BATCH RENAME MODAL TRIGGER ===== */}
+              <CyberButton
+                variant="outline"
+                size="sm"
+                icon={<Edit3 className="w-3.5 h-3.5 text-[#E056FD]" />}
+                onClick={() => {
+                  cyberAudio.playCyberClick();
+                  setIsBatchRenameOpen(true);
+                }}
+                className="!text-[10px] !py-1.5 !px-3 font-bold border-[#E056FD]/60 text-white hover:bg-[#E056FD]/10"
+                title={`Batch rename ${selectedItems.length} selected files with custom prefix or suffix`}
+              >
+                BATCH RENAME ({selectedItems.length})
+              </CyberButton>
+              {/* ===== END NEW CODE: BATCH RENAME MODAL TRIGGER ===== */}
+
               {/* PRIMARY BATCH DOWNLOAD ZIP BUTTON */}
               <CyberButton
                 variant="primary"
@@ -565,7 +703,7 @@ export const ConversionHistory: React.FC = () => {
               >
                 {isZipExporting
                   ? 'PACKAGING ZIPPED ARCHIVE...'
-                  : `DOWNLOAD ZIPPED .DOCX ARCHIVE (${selectedItems.length})`}
+                  : `DOWNLOAD ZIPPED ARCHIVE (${selectedItems.length})`}
               </CyberButton>
 
               {/* Batch Delete Button */}
@@ -695,11 +833,38 @@ export const ConversionHistory: React.FC = () => {
                       </div>
                     </div>
 
-                    {item.fidelityScore && (
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-400 shrink-0 font-bold">
-                        {item.fidelityScore}%
-                      </span>
-                    )}
+                    {/* ===== START NEW CODE: AUTOMATED CATEGORY BADGE & RETAG TRIGGER ===== */}
+                    {(() => {
+                      const badge = getCategoryBadgeStyle(item.category);
+                      return (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              cyberAudio.playCyberClick();
+                              const categories: DocumentCategory[] = ['Invoices', 'Contracts', 'Reports'];
+                              const currentIdx = categories.indexOf(item.category || 'Reports');
+                              const nextCat = categories[(currentIdx + 1) % categories.length];
+                              updateHistoryItemCategory(item.id, nextCat);
+                            }}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold border flex items-center gap-1 transition-all hover:scale-105 ${badge.bg} ${badge.border} ${badge.text}`}
+                            title="Automated Category Tag: Click to cycle category (Invoices / Contracts / Reports)"
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${badge.dotColor}`} />
+                            <span>{badge.label}</span>
+                            <Tag className="w-2.5 h-2.5 opacity-60" />
+                          </button>
+
+                          {item.fidelityScore && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-400 shrink-0 font-bold">
+                              {item.fidelityScore}%
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    {/* ===== END NEW CODE: AUTOMATED CATEGORY BADGE & RETAG TRIGGER ===== */}
                   </div>
 
                   {/* Explicit Filename Display with Search Highlighting */}
@@ -729,6 +894,21 @@ export const ConversionHistory: React.FC = () => {
                     <span>&bull;</span>
                     <span>{item.headingsCount} Headings</span>
                   </div>
+
+                  {/* Metadata Tags (e.g. Invoice, Legal, Academic, Contract) */}
+                  {item.tags && item.tags.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 pt-1">
+                      {item.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-purple-950/40 border border-purple-500/30 text-purple-300 flex items-center gap-1 font-bold"
+                        >
+                          <Tag className="w-2.5 h-2.5 text-[#E056FD]" />
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Action Toolbar */}
@@ -804,6 +984,34 @@ export const ConversionHistory: React.FC = () => {
           })}
         </div>
       )}
+
+      {/* ===== START NEW CODE: BATCH PREVIEW & BATCH RENAME MODALS ===== */}
+      <BatchPreviewModal
+        isOpen={isBatchPreviewOpen}
+        onClose={() => setIsBatchPreviewOpen(false)}
+        selectedItems={selectedItems}
+        onToggleSelectItem={handleToggleSelect}
+        onLoadItemToWorkspace={(item) => {
+          cyberAudio.playCyberClick();
+          loadHistoryItem(item);
+        }}
+        onDownloadBatchZip={handleDownloadBatchZip}
+        isZipExporting={isZipExporting}
+      />
+
+      <BatchRenameModal
+        isOpen={isBatchRenameOpen}
+        onClose={() => setIsBatchRenameOpen(false)}
+        selectedItems={selectedItems}
+        onApplyRename={handleApplyBatchRename}
+      />
+
+      <MergeDocsModal
+        isOpen={isMergeModalOpen}
+        onClose={() => setIsMergeModalOpen(false)}
+        selectedItems={selectedItems}
+      />
+      {/* ===== END NEW CODE: BATCH PREVIEW, BATCH RENAME & MERGE MODALS ===== */}
     </section>
   );
 };

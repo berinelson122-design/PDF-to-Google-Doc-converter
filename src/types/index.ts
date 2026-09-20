@@ -25,6 +25,38 @@ export interface GoogleDocFormatStats {
   fidelityScore: number; // 0-100%
 }
 
+export type GeminiModelPreference = 'auto' | 'gemini-2.5-flash' | 'gemini-2.5-flash-lite' | 'gemini-2.5-pro' | 'gemini-2.0-flash' | 'gemini-flash-latest' | 'gemini-3.1-flash-lite' | 'gemini-3.8-flash';
+
+// ===== START NEW CODE: INGESTION OCR & AUTO-LANGUAGE SETTINGS TYPES =====
+export type ScriptType = 'latin' | 'cjk' | 'rtl' | 'cyrillic' | 'devanagari' | 'greek' | 'hebrew' | 'universal';
+
+export interface IngestionOcrSettings {
+  autoLanguageDetection: boolean;
+  detectedLanguageCode: string;
+  detectedLanguageName: string;
+  scriptType: ScriptType;
+  enableBidiTextEngine: boolean;
+  verticalTextOrientation: boolean;
+  enhanceCharacterResolution: boolean;
+  tabularMatrixMode: 'strict' | 'adaptive' | 'relaxed';
+  preserveLigatures: boolean;
+  diacriticsPreservation: boolean;
+  handwritingPreprocessing: boolean;
+  dictionaryAlignment: boolean;
+}
+
+export interface AppliedOcrSettings {
+  languageCode: string;
+  languageName: string;
+  scriptType: ScriptType;
+  bidiEnabled: boolean;
+  verticalText: boolean;
+  resolutionEnhanced: boolean;
+  dictionaryAligned: boolean;
+  appliedRules: string[];
+}
+// ===== END NEW CODE: INGESTION OCR & AUTO-LANGUAGE SETTINGS TYPES =====
+
 export interface ConversionResult {
   documentTitle: string;
   htmlContent: string;
@@ -33,6 +65,15 @@ export interface ConversionResult {
   detectedElements: DetectedElements;
   conversionTimeMs: number;
   googleDocsBatchUpdates?: any[];
+  modelUsed?: string;
+  tags?: string[];
+  // ===== START NEW CODE: DETECTED LANGUAGE & TRANSLATION METADATA =====
+  detectedLanguage?: DetectedLanguage;
+  originalLanguage?: DetectedLanguage;
+  translatedAt?: number;
+  isTranslated?: boolean;
+  appliedOcrSettings?: AppliedOcrSettings;
+  // ===== END NEW CODE: DETECTED LANGUAGE & TRANSLATION METADATA =====
 }
 
 export interface PdfTechnicalMetadata {
@@ -64,6 +105,8 @@ export interface PdfDocument {
   uploadedAt: number;
   previewUrl?: string;
   technicalMetadata?: PdfTechnicalMetadata;
+  detectedLanguage?: DetectedLanguage;
+  ocrSettings?: IngestionOcrSettings;
 }
 
 export interface QueueItem {
@@ -79,6 +122,12 @@ export interface QueueItem {
   result?: ConversionResult;
   addedAt: number;
   samplePrecomputed?: string;
+  technicalMetadata?: PdfTechnicalMetadata;
+  pdfVersion?: string;
+  author?: string;
+  detectedLanguage?: DetectedLanguage;
+  ocrSettings?: IngestionOcrSettings;
+  pageRange?: string;
 }
 
 export interface ConversionHistoryItem {
@@ -96,6 +145,10 @@ export interface ConversionHistoryItem {
   status: 'success' | 'failed';
   base64Data?: string;
   technicalMetadata?: PdfTechnicalMetadata;
+  // ===== START NEW CODE: AUTOMATED DOCUMENT CATEGORIZATION & TAGGING =====
+  category?: DocumentCategory;
+  tags?: string[];
+  // ===== END NEW CODE: AUTOMATED DOCUMENT CATEGORIZATION & TAGGING =====
 }
 
 export interface DeviceControlConfig {
@@ -147,7 +200,7 @@ export interface SavedConversionRecord {
   };
 }
 
-export type ExportDocumentFormat = 'docx' | 'md' | 'txt';
+export type ExportDocumentFormat = 'pdf' | 'docx' | 'md' | 'txt' | 'epub' | 'csv';
 
 export interface ComplexPhraseItem {
   phrase: string;
@@ -171,3 +224,87 @@ export interface ReadabilityMetrics {
   complexWordsPercentage: number;
   complexPhrases: ComplexPhraseItem[];
 }
+
+// ===== START NEW CODE: DOCUMENT CATEGORIZATION, THEME & BATCH RENAME TYPES =====
+export type DocumentCategory = 'Invoices' | 'Contracts' | 'Reports' | 'Legal' | 'Academic' | 'Invoice' | 'Contract' | 'Financial' | 'General';
+
+export type AppTheme = 'cyberpunk' | 'light';
+
+export interface BatchRenameConfig {
+  prefix: string;
+  suffix: string;
+  findText: string;
+  replaceText: string;
+}
+// ===== END NEW CODE: DOCUMENT CATEGORIZATION, THEME & BATCH RENAME TYPES =====
+
+// ===== START NEW CODE: ANNOTATION & OCR LOW-CONFIDENCE TYPES =====
+export type AnnotationType = 'highlight' | 'underline' | 'strikethrough';
+
+export type HighlightColor = 'yellow' | 'cyberRed' | 'neonGreen' | 'purple';
+
+export interface LowConfidenceFlag {
+  id: string;
+  originalWord: string;
+  certaintyScore: number; // 0 - 100%
+  reason: string;
+  suggestedCorrection?: string;
+  isVerified?: boolean;
+}
+
+export interface AnnotationToolbarState {
+  activeColor: HighlightColor;
+  showLowConfidence: boolean;
+  lowConfidenceCount: number;
+  currentFlagIndex: number;
+}
+// ===== END NEW CODE: ANNOTATION & OCR LOW-CONFIDENCE TYPES =====
+
+// ===== START NEW CODE: LANGUAGE DETECTION, TRANSLATION & WEB SPEECH API TTS TYPES =====
+export interface DetectedLanguage {
+  code: string;
+  name: string;
+  nativeName?: string;
+  confidence: number; // 0.0 - 1.0
+  flag?: string;
+  isAutoDetected?: boolean;
+}
+
+export interface SupportedLanguage {
+  code: string;
+  name: string;
+  nativeName: string;
+  flag: string;
+  speechCode: string;
+}
+
+export type TTSStatus = 'idle' | 'playing' | 'paused' | 'stopped';
+
+export interface TTSState {
+  status: TTSStatus;
+  currentVoiceURI: string;
+  rate: number; // 0.5 - 2.0
+  pitch: number; // 0.5 - 1.5
+  volume: number; // 0.0 - 1.0
+  isHighlightEnabled: boolean;
+  activeSpokenWord: string;
+  activeCharIndex: number;
+  activeWordIndex: number;
+  totalWords: number;
+  progressPercent: number;
+  readTarget: 'all' | 'page' | 'selection';
+  activePageNumber: number;
+}
+
+export interface TranslationState {
+  isTranslating: boolean;
+  sourceLanguage: DetectedLanguage;
+  targetLanguage: SupportedLanguage;
+  translationProgress: number; // 0 - 100
+  originalBackupHtml: string;
+  originalBackupTitle: string;
+  isOfferBannerDismissed: boolean;
+}
+// ===== END NEW CODE: LANGUAGE DETECTION, TRANSLATION & WEB SPEECH API TTS TYPES =====
+
+

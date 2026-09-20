@@ -9,7 +9,9 @@ import {
   Sparkles,
   Monitor,
   Smartphone,
-  Gamepad2
+  Gamepad2,
+  HelpCircle,
+  Keyboard
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { useInputStore } from '../../store/useInputStore.ts';
@@ -23,7 +25,8 @@ export const Navbar: React.FC = () => {
     openPricingModal, 
     subscription, 
     result,
-    openExportModal 
+    openExportModal,
+    toggleShortcutsModal 
   } = useGameStore();
 
   const { config, toggleSound } = useInputStore();
@@ -34,9 +37,9 @@ export const Navbar: React.FC = () => {
   };
 
   return (
-    <header className="w-full bg-[#050507] border-b border-neutral-800 px-4 py-3 flex items-center justify-between gap-4 sticky top-0 z-30 select-none">
+    <header className="w-full bg-[#050507] border-b border-neutral-800 px-4 py-3 flex items-center justify-between gap-4 sticky top-0 z-30 select-none overflow-x-auto scrollbar-none max-md:flex-nowrap">
       {/* Brand Identity */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 shrink-0">
         <div className="w-9 h-9 rounded bg-black border border-[#FF003C] flex items-center justify-center text-[#FF003C] shadow-[0_0_12px_rgba(255,0,60,0.3)]">
           <FileText className="w-5 h-5" />
         </div>
@@ -57,7 +60,7 @@ export const Navbar: React.FC = () => {
       </div>
 
       {/* Center Engine Telemetry */}
-      <div className="hidden lg:flex items-center gap-3 font-mono text-xs">
+      <div className="hidden lg:flex items-center gap-3 font-mono text-xs shrink-0">
         <CyberBadge label="AI: NEURAL ENGINE V3" variant="red" pulse />
         <CyberBadge label="LAYOUT: TABLES &amp; FONTS PRESERVED" variant="purple" />
         <CyberBadge 
@@ -67,7 +70,7 @@ export const Navbar: React.FC = () => {
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         {/* Device indicator & Quick Switch */}
         <button
           onClick={() => openSettings(true)}
@@ -91,6 +94,19 @@ export const Navbar: React.FC = () => {
           ) : (
             <VolumeX className="w-4 h-4 text-neutral-600" />
           )}
+        </button>
+
+        {/* Keyboard Shortcuts Help Overlay Button */}
+        <button
+          onClick={() => {
+            cyberAudio.playButtonAction();
+            toggleShortcutsModal();
+          }}
+          title="Keyboard Shortcuts Help (Press '?' or F1)"
+          className="p-1.5 px-2 rounded border border-neutral-800 bg-neutral-950 text-neutral-300 hover:text-white hover:border-[#FF003C] hover:bg-neutral-900 transition-colors flex items-center gap-1 font-mono text-xs"
+        >
+          <HelpCircle className="w-4 h-4 text-[#FF003C]" />
+          <span className="font-bold text-[11px] hidden sm:inline">[?]</span>
         </button>
 
         {/* Settings button */}

@@ -1,9 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
-import { ConversionResult } from '../types/index.ts';
+import { ConversionResult, GeminiModelPreference, IngestionOcrSettings } from '../types/index.ts';
 
 export interface ConvertPdfRequest {
   pdfBase64: string;
   filename: string;
+  modelPreference?: GeminiModelPreference;
+  ocrSettings?: IngestionOcrSettings;
   onProgress?: (percent: number, message: string) => void;
 }
 
@@ -14,7 +16,7 @@ export interface ConvertPdfRequest {
  * 3. Graceful Fallback: Diagnostic preview structure with layout preservation if deployed statically without server.
  */
 export async function convertPdfToGoogleDoc(req: ConvertPdfRequest): Promise<ConversionResult> {
-  const { pdfBase64, filename, onProgress } = req;
+  const { pdfBase64, filename, modelPreference, ocrSettings, onProgress } = req;
   const startTime = Date.now();
   const cleanBase64 = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
 
@@ -32,6 +34,8 @@ export async function convertPdfToGoogleDoc(req: ConvertPdfRequest): Promise<Con
       body: JSON.stringify({
         pdfBase64: cleanBase64,
         filename,
+        modelPreference: modelPreference || 'auto',
+        ocrSettings,
       }),
     });
 
@@ -65,6 +69,7 @@ STRICT INSTRUCTIONS:
    - Accurately retain Headings (H1, H2, H3), bold weights, and text colors.
    - Convert complex tables into clean <table> elements with inline CSS: border-collapse: collapse; width: 100%; border: 1px solid #dadce0; cell padding; header row backgrounds; alternating row tints.
    - Retain bullet points and lists.
+   - Multi-page separation: When the document has multiple pages, insert an explicit page break marker between pages: <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
 2. Return a JSON object with this EXACT structure (valid JSON only, no markdown wrapping, no \`\`\`json blocks):
 {
   "documentTitle": "string",
@@ -87,28 +92,74 @@ STRICT INSTRUCTIONS:
 
       onProgress?.(70, 'EXTRACTING_TABLES_HEADINGS_AND_TYPOGRAPHY');
 
-      const geminiResponse = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  mimeType: 'application/pdf',
-                  data: cleanBase64,
+      const allModels = [
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+        'gemini-2.5-pro',
+        'gemini-2.0-flash',
+        'gemini-flash-latest',
+        'gemini-3.1-flash-lite',
+        'gemini-3.8-flash',
+      ];
+      const candidateModels = (modelPreference && modelPreference !== 'auto' && allModels.includes(modelPreference))
+        ? [modelPreference, ...allModels.filter((m) => m !== modelPreference)]
+        : allModels;
+      let geminiResponse: any = null;
+
+      for (const modelName of candidateModels) {
+        let attempt = 0;
+        const maxAttempts = 3;
+        while (attempt < maxAttempts) {
+          attempt++;
+          try {
+            geminiResponse = await ai.models.generateContent({
+              model: modelName,
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: 'application/pdf',
+                        data: cleanBase64,
+                      },
+                    },
+                    {
+                      text: prompt,
+                    },
+                  ],
                 },
+              ],
+              config: {
+                responseMimeType: 'application/json',
               },
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-        config: {
-          responseMimeType: 'application/json',
-        },
-      });
+            });
+            if (geminiResponse?.text) break;
+          } catch (modelErr: any) {
+            const errMsg = modelErr?.message || String(modelErr);
+            const isTransient =
+              errMsg.includes('503') ||
+              errMsg.includes('UNAVAILABLE') ||
+              errMsg.includes('high demand') ||
+              errMsg.includes('429') ||
+              errMsg.includes('RESOURCE_EXHAUSTED') ||
+              errMsg.includes('overloaded');
+
+            console.warn(`[Client Gemini] Model ${modelName} (attempt ${attempt}) encountered error: ${errMsg}`);
+
+            if (isTransient && attempt < maxAttempts) {
+              await new Promise((res) => setTimeout(res, attempt * 750));
+            } else {
+              break;
+            }
+          }
+        }
+        if (geminiResponse?.text) break;
+      }
+
+      if (!geminiResponse?.text) {
+        throw new Error('All candidate Gemini models temporarily unavailable.');
+      }
 
       const responseText = geminiResponse.text || '';
       let parsedJson: ConversionResult;

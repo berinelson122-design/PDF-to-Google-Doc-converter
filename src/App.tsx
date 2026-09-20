@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { Navbar } from './components/layout/Navbar.tsx';
-import { Scanlines } from './components/layout/Scanlines.tsx';
 import { Watermark } from './components/layout/Watermark.tsx';
 import { PdfUploader } from './components/UI/PdfUploader.tsx';
 import { ComparisonView } from './components/UI/ComparisonView.tsx';
@@ -9,9 +8,13 @@ import { DocxExportModal } from './components/UI/DocxExportModal.tsx';
 import { PricingModal } from './components/UI/PricingModal.tsx';
 import { ConversionHistory } from './components/UI/ConversionHistory.tsx';
 import { RecentConversionsBar } from './components/UI/RecentConversionsBar.tsx';
+import { DocumentTranslationModal } from './components/UI/DocumentTranslationModal.tsx';
+import { TextToSpeechPlayer } from './components/UI/TextToSpeechPlayer.tsx';
+import { KeyboardShortcutsModal } from './components/UI/KeyboardShortcutsModal.tsx';
+import { FloatingHelpButton } from './components/UI/FloatingHelpButton.tsx';
 import { useUniversalInput } from './hooks/useUniversalInput.ts';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts.ts';
-import { useGameStore } from './store/useGameStore.ts';
+import { useGameStore, initSystemThemeObserver } from './store/useGameStore.ts';
 import { FileText, ArrowRight, CheckCircle2, Zap, RotateCcw, Command, Keyboard } from 'lucide-react';
 import { CyberButton } from './components/common/CyberButton.tsx';
 
@@ -25,8 +28,19 @@ export default function App() {
     resetConversion, 
     upgradeToPro, 
     savedConversions, 
-    restoreLastConversion 
+    restoreLastConversion,
+    appTheme,
+    setAppTheme,
+    isFullscreen 
   } = useGameStore();
+
+  useEffect(() => {
+    // Mount system OS dark/light theme observer
+    const cleanupObserver = initSystemThemeObserver((newTheme) => {
+      setAppTheme(newTheme);
+    });
+    return cleanupObserver;
+  }, [setAppTheme]);
 
   useEffect(() => {
     // Check for Stripe success URL param
@@ -41,31 +55,32 @@ export default function App() {
   }, [upgradeToPro]);
 
   return (
-    <div className="min-h-screen bg-black text-[#EDEDED] flex flex-col relative font-mono selection:bg-[#FF003C] selection:text-white pb-16">
-      {/* Background Procedural Scanline & Beam Canvas */}
-      <Scanlines />
-
-      {/* Primary Navigation Bar */}
-      <Navbar />
+    <div className={`min-h-screen flex flex-col relative font-mono selection:bg-[#FF003C] selection:text-white ${isFullscreen ? 'p-0 overflow-hidden' : 'pb-16'} transition-colors duration-200 ${
+      appTheme === 'light'
+        ? 'bg-[#F8F9FA] text-[#09090B] theme-light'
+        : 'bg-black text-[#EDEDED] theme-cyberpunk'
+    }`}>
+      {/* Primary Navigation Bar (Hidden in Distraction-Free Fullscreen Mode) */}
+      {!isFullscreen && <Navbar />}
 
       {/* Main Tactical Workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 flex flex-col space-y-6 relative z-10">
+      <main className={`flex-1 ${isFullscreen ? 'w-full h-screen p-0 max-w-none' : 'max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6'} flex flex-col relative z-10`}>
         {/* Quick Session Resume Banner if page was refreshed and previous conversions exist */}
-        {!result && savedConversions.length > 0 && (
+        {!isFullscreen && !result && savedConversions.length > 0 && (
           <div 
             id="session-restore-banner"
-            className="p-3 md:p-3.5 bg-emerald-950/25 border border-emerald-500/40 rounded flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-[0_0_15px_rgba(16,185,129,0.1)] relative overflow-hidden"
+            className="p-3.5 md:p-4 bg-emerald-950/30 border border-emerald-500/50 rounded-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-[0_0_15px_rgba(16,185,129,0.15)] relative overflow-hidden"
           >
-            <div className="flex items-center gap-2.5 text-xs">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+            <div className="flex items-center gap-3 text-sm">
+              <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.9)]" />
               <div>
-                <div className="font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <span>PREVIOUS SESSION DETECTED IN LOCAL STORAGE</span>
-                  <span className="text-[10px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded">
+                <div className="font-bold text-white uppercase tracking-wider flex items-center gap-2 text-sm">
+                  <span>PREVIOUS SESSION DETECTED IN STORAGE</span>
+                  <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded">
                     {savedConversions.length} SAVED
                   </span>
                 </div>
-                <div className="text-neutral-400 text-[11px] truncate max-w-lg mt-0.5">
+                <div className="text-neutral-300 text-xs truncate max-w-lg mt-0.5">
                   Latest: <span className="text-[#E056FD] font-semibold">{savedConversions[0].title}</span> ({savedConversions[0].originalFileName})
                 </div>
               </div>
@@ -74,49 +89,43 @@ export default function App() {
             <button
               id="btn-restore-last-conversion"
               onClick={restoreLastConversion}
-              className="px-3.5 py-1.5 text-xs font-bold font-mono bg-emerald-500 text-black hover:bg-emerald-400 rounded transition-all shadow-[0_0_12px_rgba(16,185,129,0.4)] shrink-0 flex items-center gap-1.5"
+              className="px-4 py-2 text-sm font-bold font-mono bg-emerald-500 text-black hover:bg-emerald-400 rounded transition-all shadow-[0_0_12px_rgba(16,185,129,0.4)] shrink-0 flex items-center gap-2"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="w-4 h-4" />
               <span>RELOAD PREVIOUS DOCUMENT</span>
             </button>
           </div>
         )}
 
-        {/* Value Proposition & Technical Blueprint Banner (When no result yet) */}
-        {!result && (
-          <div className="p-4 md:p-6 border border-[#FF003C]/40 bg-[#08080A] rounded shadow-[0_0_25px_rgba(255,0,60,0.1)] relative overflow-hidden">
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-              <div className="space-y-1.5 max-w-2xl">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[#FF003C] animate-ping" />
-                  <span className="text-xs font-bold uppercase tracking-widest text-[#FF003C]">
-                    SUPERIOR GOOGLE DOCS RECONSTRUCTION PIPELINE
-                  </span>
+        {/* Clear Value Proposition Banner (When no result yet) */}
+        {!isFullscreen && !result && (
+          <div className="p-5 md:p-6 border border-[#FF003C]/50 bg-[#0A0A0E] rounded-md shadow-[0_0_25px_rgba(255,0,60,0.12)] relative">
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-5">
+              <div className="space-y-2 max-w-3xl">
+                <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded bg-[#FF003C]/20 border border-[#FF003C]/40 text-[#FF003C] text-xs font-bold uppercase tracking-wider">
+                  <Zap className="w-3.5 h-3.5" />
+                  HIGH-FIDELITY DOCUMENT CONVERTER
                 </div>
-                <h2 className="text-sm md:text-lg font-bold text-white uppercase tracking-wider">
-                  Convert PDFs into Google Docs with Preserved Tables, Typography &amp; Layouts
+                <h2 className="text-lg md:text-2xl font-bold text-white uppercase tracking-wider leading-snug">
+                  CONVERT PDF TO GOOGLE DOCS WITH PRESERVED TABLES &amp; TYPOGRAPHY
                 </h2>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Unlike Google&apos;s native converter which flattens PDFs into plain unformatted text blobs with broken margins, our Neural Document Reconstruction pipeline reads visual layout natively, extracts complex multi-column tables, heading weights, and provides 1-click rich clipboard transfer to <code className="text-[#E056FD]">docs.google.com</code>.
+                <p className="text-sm md:text-base text-neutral-300 leading-relaxed">
+                  Reconstructs complex PDF layouts into editable documents with formatted tables, font weights, and headings. Transfer directly to Google Docs or export back to clean PDF, Word, or Markdown.
                 </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-2 shrink-0">
-                <div className="p-2.5 bg-black border border-neutral-800 rounded text-center">
-                  <div className="text-[10px] text-neutral-500 uppercase">Native Google Tool</div>
-                  <div className="text-xs text-[#FF003C] font-bold mt-0.5">Broken Tables</div>
-                </div>
-                <div className="p-2.5 bg-black border border-emerald-500/50 rounded text-center">
-                  <div className="text-[10px] text-neutral-400 uppercase">AI Layout Engine</div>
-                  <div className="text-xs text-emerald-400 font-bold mt-0.5">100% Retained</div>
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="px-4 py-3 bg-black border border-emerald-500/50 rounded-md text-center">
+                  <div className="text-xs text-neutral-400 uppercase font-bold">TABLES &amp; FORMATS</div>
+                  <div className="text-base text-emerald-400 font-bold mt-0.5">100% PRESERVED</div>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Action Header when result is active */}
-        {result && (
+        {/* Action Header when result is active (Hidden in fullscreen) */}
+        {!isFullscreen && result && (
           <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#0A0A0C] border border-neutral-800 rounded">
             <div className="flex items-center gap-2 text-xs">
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
@@ -147,17 +156,23 @@ export default function App() {
           <ComparisonView />
         )}
 
-        {/* Local Storage Persistence Layer for Last 5 Conversions */}
-        <RecentConversionsBar />
+        {/* Local Storage Persistence Layer for Last 5 Conversions (Hidden in fullscreen) */}
+        {!isFullscreen && <RecentConversionsBar />}
 
-        {/* Telemetry Logs & Conversion History */}
-        <ConversionHistory />
+        {/* Telemetry Logs & Conversion History (Hidden in fullscreen) */}
+        {!isFullscreen && <ConversionHistory />}
       </main>
 
       {/* Cross-Device Modals & System Interfaces */}
       <ControlSettings />
       <DocxExportModal />
       <PricingModal />
+      <DocumentTranslationModal />
+      <TextToSpeechPlayer />
+      <KeyboardShortcutsModal />
+
+      {/* Persistent Floating '?' Shortcuts Help Trigger */}
+      <FloatingHelpButton />
 
       {/* Global Keyboard Shortcut HUD Toast Notification */}
       {activeNotification && (

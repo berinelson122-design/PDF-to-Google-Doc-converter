@@ -7,7 +7,19 @@ import {
   UserSubscription,
   GoogleDocsExportConfig,
   QueueItem,
-  SavedConversionRecord
+  SavedConversionRecord,
+  DocumentCategory,
+  AppTheme,
+  BatchRenameConfig,
+  LowConfidenceFlag,
+  GeminiModelPreference,
+  DetectedLanguage,
+  SupportedLanguage,
+  TTSState,
+  TTSStatus,
+  IngestionOcrSettings,
+  AppliedOcrSettings,
+  ScriptType,
 } from '../types/index.ts';
 import {
   loadSavedConversions,
@@ -18,12 +30,108 @@ import {
   getLastActiveConversionId,
   setLastActiveConversionId,
 } from '../utils/recentConversionsStorage.ts';
+import { classifyDocument } from '../utils/documentClassifier.ts';
+import { 
+  scanAndInjectLowConfidenceMarkers, 
+  stripLowConfidenceMarkers 
+} from '../utils/ocrConfidenceScanner.ts';
+import { 
+  detectLanguageFromText, 
+  getSupportedLanguage, 
+  SUPPORTED_LANGUAGES,
+  getAutoOcrSettingsForLanguage,
+  DEFAULT_INGESTION_OCR_SETTINGS,
+  detectLanguageFromPdfBuffer,
+} from '../utils/languageDetector.ts';
+import { translateDocumentContent } from '../utils/documentTranslator.ts';
+import { speechSynth } from '../utils/speechSynth.ts';
 
-// ===== START NEW CODE: DOCUMENT & CONVERSION STORE WITH BULK QUEUE & LOCAL PERSISTENCE =====
+// ===== START NEW CODE: DOCUMENT & CONVERSION STORE WITH BULK QUEUE, THEME & LOCAL PERSISTENCE =====
 const HISTORY_STORAGE_KEY = 'cyber_pdf_conversion_history_v1';
 const SUBSCRIPTION_STORAGE_KEY = 'cyber_pdf_subscription_v1';
 export const AUTOSAVE_SETTINGS_KEY = 'cyber_pdf_autosave_setting_v1';
 export const DRAFT_STORAGE_KEY = 'cyber_pdf_draft_autosave_v1';
+export const THEME_STORAGE_KEY = 'cyber_pdf_theme_v1';
+
+function applyThemeToDocument(theme: AppTheme) {
+  try {
+    if (typeof document !== 'undefined') {
+      const root = document.documentElement;
+      if (theme === 'light') {
+        root.classList.remove('dark');
+        root.classList.add('light', 'theme-light');
+        document.body.classList.remove('bg-black');
+        document.body.classList.add('theme-light');
+      } else {
+        root.classList.remove('light', 'theme-light');
+        root.classList.add('dark', 'theme-cyberpunk');
+        document.body.classList.add('bg-black');
+        document.body.classList.remove('theme-light');
+      }
+    }
+  } catch (e) {
+    console.error('Failed to apply theme to document:', e);
+  }
+}
+
+function getSystemThemePreference(): AppTheme {
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'cyberpunk' : 'light';
+    }
+  } catch (e) {
+    console.error('Failed to query matchMedia system theme:', e);
+  }
+  return 'cyberpunk';
+}
+
+function loadInitialTheme(): AppTheme {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY) as AppTheme | null;
+      if (stored === 'light' || stored === 'cyberpunk') {
+        applyThemeToDocument(stored);
+        return stored;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load theme from localStorage:', e);
+  }
+  const sysTheme = getSystemThemePreference();
+  applyThemeToDocument(sysTheme);
+  return sysTheme;
+}
+
+/**
+ * System preference observer that detects OS dark/light mode changes
+ * and automatically updates the application theme when no manual theme lock exists.
+ */
+export function initSystemThemeObserver(setTheme: (theme: AppTheme) => void) {
+  if (typeof window === 'undefined' || !window.matchMedia) return () => {};
+
+  try {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      // Check if user explicitly manually set theme in localStorage
+      const hasStoredOverride = localStorage.getItem(THEME_STORAGE_KEY) !== null;
+      if (!hasStoredOverride) {
+        const newTheme: AppTheme = e.matches ? 'cyberpunk' : 'light';
+        setTheme(newTheme);
+      }
+    };
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handler);
+      return () => mediaQuery.removeEventListener('change', handler);
+    } else if (mediaQuery.addListener) {
+      mediaQuery.addListener(handler);
+      return () => mediaQuery.removeListener(handler);
+    }
+  } catch (err) {
+    console.error('Failed to attach system theme mediaQuery listener:', err);
+  }
+  return () => {};
+}
 
 function loadInitialAutoSave(): boolean {
   try {
@@ -81,21 +189,233 @@ function getInitialSavedConversions(): SavedConversionRecord[] {
   return [];
 }
 
+const DEFAULT_SEED_DOCUMENTS: ConversionHistoryItem[] = [
+  {
+    id: 'seed_inv_2026',
+    title: 'INV-2026-0982-Global-Logistics',
+    originalFileName: 'INV-2026-0982-Global-Logistics.pdf',
+    fileSize: 342000,
+    timestamp: Date.now() - 1000 * 60 * 60 * 3,
+    pageCount: 2,
+    tablesCount: 1,
+    headingsCount: 3,
+    category: 'Invoices',
+    status: 'success',
+    fidelityScore: 99.2,
+    htmlContent: `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 800px; margin: 0 auto;">
+      <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #e5e7eb; padding-bottom: 16px; margin-bottom: 20px;">
+        <div>
+          <h1 style="margin: 0; font-size: 22pt; color: #111827; font-weight: 700;">INVOICE</h1>
+          <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 10pt;">INVOICE ID: <strong>INV-2026-0982</strong></p>
+          <p style="margin: 2px 0 0 0; color: #6b7280; font-size: 10pt;">BILLING TAX ID: <strong>US-94827104</strong></p>
+        </div>
+        <div style="text-align: right;">
+          <p style="margin: 0; font-weight: bold; color: #111827;">Global Logistics & Cloud Proxies Ltd.</p>
+          <p style="margin: 2px 0 0 0; color: #6b7280; font-size: 10pt;">Date: March 15, 2026</p>
+          <p style="margin: 2px 0 0 0; color: #6b7280; font-size: 10pt;">Payment Terms: Net 30 Days</p>
+        </div>
+      </div>
+
+      <h2 style="font-size: 14pt; color: #1f2937; margin-top: 16px; margin-bottom: 8px;">1. Billed Services & Itemized Units</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">
+        Below is the itemized breakdown of dedicated cloud transit and secure gateway endpoints provisioned during the billing cycle.
+      </p>
+
+      <table style="width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; font-size: 10pt;">
+        <thead>
+          <tr style="background-color: #f3f4f6;">
+            <th style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: left;">Line Item Description</th>
+            <th style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: center;">Qty</th>
+            <th style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">Unit Rate</th>
+            <th style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">Total Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px;">Low-Latency Neural Pipeline Gateway (Sub-15ms)</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: center;">2</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">$1,200.00</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">$2,400.00</td>
+          </tr>
+          <tr style="background-color: #f9fafb;">
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px;">High-Fidelity Optical Layout Recognition Node</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: center;">1</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">$1,850.00</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">$1,850.00</td>
+          </tr>
+          <tr>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px;">Regional Storage Mirroring & Encryption Cluster</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: center;">1</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">$400.00</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">$400.00</td>
+          </tr>
+          <tr style="background-color: #f3f4f6; font-weight: bold;">
+            <td colspan="3" style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right;">TOTAL PAYABLE DUE:</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px 12px; text-align: right; color: #1e3a8a;">$4,650.00</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 13pt; color: #1f2937; margin-top: 18px; margin-bottom: 6px;">2. Remittance & Wire Instructions</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 14px;">
+        Please transmit payment to routing transit number <strong>#021000021</strong> referencing invoice voucher <strong>INV-2026-0982</strong>. All terms are subject to standard vendor covenants and service level agreements.
+      </p>
+
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 16px; margin-top: 12px; font-size: 10pt;">
+        <p style="margin: 0 0 6px 0; font-weight: bold; color: #0f172a;">Bank Beneficiary Information:</p>
+        <p style="margin: 2px 0; color: #475569;">Beneficiary Account: <strong>8829-1094-3982</strong></p>
+        <p style="margin: 2px 0; color: #475569;">SWIFT / BIC Code: <strong>GLCLUS33XXX</strong></p>
+        <p style="margin: 2px 0; color: #475569;">Bank Name: First International Cyber Federal Reserve</p>
+        <p style="margin: 8px 0 0 0; font-size: 9pt; color: #94a3b8;">Payments received after Net 30 will incur a standard 1.5% monthly compliance rate.</p>
+      </div>
+
+      <div style="margin-top: 40px; display: flex; justify-content: space-between; font-size: 10pt; color: #4b5563;">
+        <div style="border-top: 1px solid #cbd5e1; width: 220px; padding-top: 6px; text-align: center;">
+          Authorized Corporate Signatory
+        </div>
+        <div style="border-top: 1px solid #cbd5e1; width: 220px; padding-top: 6px; text-align: center;">
+          Enterprise Client Verification
+        </div>
+      </div>
+    </div>`,
+    markdownContent: '# INVOICE INV-2026-0982\n\nTotal Due: $4,650.00\nTax ID: US-94827104'
+  },
+  {
+    id: 'seed_contract_msa',
+    title: 'Master-Services-Agreement-Final',
+    originalFileName: 'Master-Services-Agreement-Final.pdf',
+    fileSize: 512000,
+    timestamp: Date.now() - 1000 * 60 * 60 * 24,
+    pageCount: 3,
+    tablesCount: 1,
+    headingsCount: 4,
+    category: 'Contracts',
+    status: 'success',
+    fidelityScore: 98.7,
+    htmlContent: `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 800px; margin: 0 auto;">
+      <h1 style="font-size: 20pt; font-weight: 700; color: #111827; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">MASTER SERVICES AGREEMENT</h1>
+      <p style="font-size: 10.5pt; color: #4b5563; margin-bottom: 16px;">This Master Services Agreement is entered into between Provider and Enterprise Client effective March 2026.</p>
+      <h2 style="font-size: 14pt; color: #1f2937; margin-top: 16px;">Section 1. Confidentiality &amp; Restrictive Covenants</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">Each party agrees to maintain strict confidentiality over proprietary technical documentation, biometric credentials, neural dataset keys, and cryptographic key materials. These covenants survive termination of this agreement for five (5) full calendar years.</p>
+      <p style="font-size: 10pt; color: #4b5563;">Neither party shall disclose, directly or indirectly, confidential technical disclosures without prior written notarized consent from the Chief Information Security Officer.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 14pt; color: #1f2937; margin-top: 16px;">Section 2. Deliverables &amp; Performance Milestones</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">The Provider agrees to deploy dedicated hardware clusters with sub-15ms regional latency guarantees. Milestones are formally tracked via weekly encrypted telemetric digests.</p>
+      <ul style="font-size: 10pt; color: #4b5563; margin-left: 20px; margin-bottom: 16px;">
+        <li><strong>Milestone A:</strong> Provision of secure edge gateways within 48 hours of execution.</li>
+        <li><strong>Milestone B:</strong> 99.99% availability of Google Docs bidirectional synchronizer.</li>
+        <li><strong>Milestone C:</strong> Automated monthly OCR accuracy audits exceeding 98.5% fidelity.</li>
+      </ul>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 14pt; color: #1f2937; margin-top: 16px;">Section 3. Indemnification &amp; Governing Law</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">This agreement is governed by the laws of the State of Delaware, without regard to conflict of laws principles. The parties submit to exclusive jurisdiction in federal and state venues.</p>
+      <div style="margin-top: 36px; display: flex; justify-content: space-between; font-size: 10pt; color: #4b5563;">
+        <div style="border-top: 1px solid #cbd5e1; width: 220px; padding-top: 8px; text-align: center;">
+          Provider: Void Systems Inc.<br />Date: March 15, 2026
+        </div>
+        <div style="border-top: 1px solid #cbd5e1; width: 220px; padding-top: 8px; text-align: center;">
+          Client: Apex Enterprise Corp.<br />Date: March 15, 2026
+        </div>
+      </div>
+    </div>`,
+    markdownContent: '# MASTER SERVICES AGREEMENT\n\nEffective March 2026.'
+  },
+  {
+    id: 'seed_report_audit',
+    title: 'Q3-Cyber-Telemetry-Audit',
+    originalFileName: 'Q3-Cyber-Telemetry-Audit.pdf',
+    fileSize: 680000,
+    timestamp: Date.now() - 1000 * 60 * 60 * 48,
+    pageCount: 4,
+    tablesCount: 2,
+    headingsCount: 5,
+    category: 'Reports',
+    status: 'success',
+    fidelityScore: 99.5,
+    htmlContent: `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 800px; margin: 0 auto;">
+      <h1 style="font-size: 20pt; font-weight: 700; color: #111827; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">Q3 CYBER TELEMETRY &amp; LATENCY AUDIT</h1>
+      <p style="font-size: 10.5pt; color: #4b5563; margin-bottom: 14px;">Comprehensive analysis of round-trip network response times, document conversion speed, and memory pressure on M2 Silicon architectures.</p>
+      <h2 style="font-size: 14pt; color: #1f2937; margin-top: 16px;">1. System Throughput &amp; Benchmarks</h2>
+      <p style="font-size: 10pt; color: #4b5563;">All edge gateways verified at Sub-15ms packet latency with 99.99% uptime compliance.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 14pt; color: #1f2937; margin-top: 16px;">2. Memory Pressure &amp; M2 Hardware Telemetry</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">Hardware cache coherence observed within nominal boundaries across unified memory sub-systems.</p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 10pt; margin-bottom: 16px;">
+        <thead>
+          <tr style="background-color: #f3f4f6;">
+            <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Cluster Node</th>
+            <th style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">RAM Peak</th>
+            <th style="border: 1px solid #d1d5db; padding: 8px; text-align: right;">P99 Latency</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="border: 1px solid #d1d5db; padding: 8px;">Worker Alpha-01</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">184 MB</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: right; color: #059669;">8.4 ms</td>
+          </tr>
+          <tr style="background-color: #f9fafb;">
+            <td style="border: 1px solid #d1d5db; padding: 8px;">Worker Beta-02</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">212 MB</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: right; color: #059669;">11.2 ms</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 14pt; color: #1f2937; margin-top: 16px;">3. Optical Character Recognition Integrity</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 12px;">Verification of complex tabular alignment and custom serif font detection against Google Docs benchmark suite.</p>
+      <p style="font-size: 10pt; color: #4b5563;">Overall document layout retention achieved 99.5% fidelity score under zero-packet-drop stress testing.</p>
+
+      <div class="page-break" style="page-break-after: always; height: 0; border: none; margin: 0; padding: 0;"></div>
+
+      <h2 style="font-size: 14pt; color: #1f2937; margin-top: 16px;">4. Compliance Certification &amp; Sign-Off</h2>
+      <p style="font-size: 10pt; color: #4b5563; margin-bottom: 24px;">Lead Architect confirms that all telemetry specifications satisfy the architectural mandate for low-latency execution.</p>
+      <div style="border-top: 1px solid #cbd5e1; width: 240px; padding-top: 8px; font-size: 10pt; color: #4b5563;">
+        ARCHITECT // VOID_WEAVER<br />Certified Lead Automation Engineer
+      </div>
+    </div>`,
+    markdownContent: '# Q3 CYBER TELEMETRY AUDIT\n\nLatency verified at Sub-15ms.'
+  }
+];
+
 function loadInitialHistory(): ConversionHistoryItem[] {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Retroactively classify items that don't have a category assigned
+          const normalized = parsed.map((item: ConversionHistoryItem) => {
+            if (!item.category) {
+              const classification = classifyDocument(
+                item.title || item.originalFileName || '',
+                item.htmlContent || ''
+              );
+              return { ...item, category: classification.category };
+            }
+            return item;
+          });
+          return normalized;
         }
       }
     }
   } catch (e) {
     console.error('Failed to load history from localStorage:', e);
   }
-  return [];
+  // If empty, return default seeds so user immediately has documents to inspect
+  saveHistoryToStorage(DEFAULT_SEED_DOCUMENTS);
+  return DEFAULT_SEED_DOCUMENTS;
 }
 
 function saveHistoryToStorage(history: ConversionHistoryItem[]) {
@@ -159,6 +479,9 @@ export interface GameStoreState {
   isExportModalOpen: boolean;
   isSettingsOpen: boolean;
   isPricingModalOpen: boolean;
+  isShortcutsModalOpen: boolean;
+  setIsShortcutsModalOpen: (open: boolean) => void;
+  toggleShortcutsModal: () => void;
 
   // Local Storage Persistence Layer for Last 5 Conversions
   savedConversions: SavedConversionRecord[];
@@ -172,7 +495,103 @@ export interface GameStoreState {
   queue: QueueItem[];
   isBulkProcessing: boolean;
   activeQueueId: string | null;
+
+  // ===== START NEW CODE: THEME & BATCH RENAME STATE =====
+  appTheme: AppTheme;
+  setAppTheme: (theme: AppTheme) => void;
+  toggleAppTheme: () => void;
+  updateHistoryItemCategory: (id: string, category: DocumentCategory) => void;
+  batchRenameHistoryItems: (ids: string[], config: BatchRenameConfig) => void;
+  // ===== END NEW CODE: THEME & BATCH RENAME STATE =====
+
+  // ===== START NEW CODE: OCR LOW-CONFIDENCE HIGHLIGHTER & VERIFICATION STATE =====
+  isLowConfidenceHighlightEnabled: boolean;
+  lowConfidenceFlags: LowConfidenceFlag[];
+  activeFlagIndex: number;
+  toggleLowConfidenceHighlight: () => void;
+  setLowConfidenceFlags: (flags: LowConfidenceFlag[]) => void;
+  setActiveFlagIndex: (index: number) => void;
+  verifyFlag: (id: string, correctedText?: string) => void;
+  dismissFlag: (id: string) => void;
+  verifyAllFlags: () => void;
+  // ===== END NEW CODE: OCR LOW-CONFIDENCE HIGHLIGHTER & VERIFICATION STATE =====
   
+  // ===== START NEW CODE: FULLSCREEN, THUMBNAIL SIDEBAR, SEARCH & MODEL CASCADE STATE =====
+  isFullscreen: boolean;
+  toggleFullscreen: () => void;
+  setIsFullscreen: (val: boolean) => void;
+
+  isThumbnailSidebarOpen: boolean;
+  toggleThumbnailSidebar: () => void;
+  setIsThumbnailSidebarOpen: (val: boolean) => void;
+
+  currentActivePage: number;
+  setCurrentActivePage: (page: number) => void;
+
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  searchMatchCount: number;
+  setSearchMatchCount: (count: number) => void;
+  currentSearchMatchIndex: number;
+  setCurrentSearchMatchIndex: (idx: number) => void;
+
+  geminiModelPreference: GeminiModelPreference;
+  setGeminiModelPreference: (pref: GeminiModelPreference) => void;
+  activeModelUsed: string;
+  setActiveModelUsed: (model: string) => void;
+  // ===== END NEW CODE: FULLSCREEN, THUMBNAIL SIDEBAR, SEARCH & MODEL CASCADE STATE =====
+
+  // ===== START NEW CODE: LANGUAGE DETECTION, TRANSLATION & WEB SPEECH API TTS STATE =====
+  detectedLanguage: DetectedLanguage | null;
+  setDetectedLanguage: (lang: DetectedLanguage | null) => void;
+  isTranslationModalOpen: boolean;
+  setIsTranslationModalOpen: (open: boolean) => void;
+  isTranslating: boolean;
+  isTranslationOfferDismissed: boolean;
+  dismissTranslationOffer: () => void;
+  originalBackupHtml: string | null;
+  originalBackupTitle: string | null;
+  translateDocument: (targetLangCode: string) => Promise<boolean>;
+  undoTranslation: () => void;
+
+  ttsState: TTSState;
+  isTTSPlayerOpen: boolean;
+  setIsTTSPlayerOpen: (open: boolean) => void;
+  toggleTTSPlayer: () => void;
+  startTTS: (target?: 'all' | 'page' | 'selection', customContent?: string, pageNumber?: number) => void;
+  pauseTTS: () => void;
+  resumeTTS: () => void;
+  stopTTS: () => void;
+  setTTSRate: (rate: number) => void;
+  setTTSPitch: (pitch: number) => void;
+  setTTSVolume: (volume: number) => void;
+  setTTSVoice: (voiceURI: string) => void;
+  toggleTTSHighlight: () => void;
+  // ===== END NEW CODE: LANGUAGE DETECTION, TRANSLATION & WEB SPEECH API TTS STATE =====
+
+  // ===== START NEW CODE: AUTO-OCR SETTINGS & INGESTION TUNING STATE =====
+  ingestionOcrSettings: IngestionOcrSettings;
+  setIngestionOcrSettings: (settings: IngestionOcrSettings) => void;
+  updateIngestionOcrSetting: <K extends keyof IngestionOcrSettings>(key: K, value: IngestionOcrSettings[K]) => void;
+  autoConfigureOcrForLanguage: (lang: DetectedLanguage) => void;
+  isOcrSettingsDrawerOpen: boolean;
+  setIsOcrSettingsDrawerOpen: (open: boolean) => void;
+  toggleOcrSettingsDrawer: () => void;
+  // ===== END NEW CODE: AUTO-OCR SETTINGS & INGESTION TUNING STATE =====
+
+  // ===== START NEW CODE: HIGH CONTRAST & CUSTOM TABLE MAPPING STATE =====
+  isDocHighContrastEnabled: boolean;
+  setIsDocHighContrastEnabled: (enabled: boolean) => void;
+  toggleDocHighContrast: () => void;
+
+  isCustomTableMappingOpen: boolean;
+  setIsCustomTableMappingOpen: (open: boolean) => void;
+  toggleCustomTableMapping: () => void;
+  detectedTables: any[];
+  setDetectedTables: (tables: any[]) => void;
+  applyCustomTableColumnMapping: (updatedTables: any[]) => void;
+  // ===== END NEW CODE: HIGH CONTRAST & CUSTOM TABLE MAPPING STATE =====
+
   // Actions
   setPdf: (pdf: PdfDocument | null) => void;
   setStatus: (status: ConversionStatus, message?: string, progress?: number) => void;
@@ -224,27 +643,48 @@ const DEFAULT_EXPORT_CONFIG: GoogleDocsExportConfig = {
   fontSizeScale: 1.0,
 };
 
+const initialSavedRecords = getInitialSavedConversions();
+const initialActiveSavedId = getLastActiveConversionId() || (initialSavedRecords.length > 0 ? initialSavedRecords[0].id : null);
+const initialActiveRecord = initialSavedRecords.find((r) => r.id === initialActiveSavedId) || initialSavedRecords[0] || null;
+
+let initialResult: ConversionResult | null = null;
+let initialEditedHtml = '';
+let initialFlags: LowConfidenceFlag[] = [];
+let initialDetectedLanguage: DetectedLanguage | null = null;
+
+if (initialActiveRecord) {
+  initialResult = initialActiveRecord.result;
+  const rawHtml = initialActiveRecord.editedHtml || initialActiveRecord.result.htmlContent || '';
+  const scanned = scanAndInjectLowConfidenceMarkers(rawHtml);
+  initialEditedHtml = scanned.flaggedHtml;
+  initialFlags = scanned.flags;
+  initialDetectedLanguage = initialResult.detectedLanguage || detectLanguageFromText(rawHtml);
+}
+
 export const useGameStore = create<GameStoreState>((set, get) => ({
   currentPdf: null,
   status: 'idle',
   progressPercent: 0,
   statusMessage: 'SYSTEM_STANDBY // WAITING_FOR_PDF_PAYLOAD',
   errorMessage: null,
-  result: null,
-  editedHtml: '',
+  result: initialResult,
+  editedHtml: initialEditedHtml,
   
-  viewMode: 'split',
+  viewMode: 'doc_only',
   history: loadInitialHistory(),
   subscription: loadInitialSubscription(),
-  exportConfig: DEFAULT_EXPORT_CONFIG,
+  exportConfig: initialResult ? { ...DEFAULT_EXPORT_CONFIG, docTitle: initialResult.documentTitle } : DEFAULT_EXPORT_CONFIG,
   googleAccessToken: '',
   isExportModalOpen: false,
   isSettingsOpen: false,
   isPricingModalOpen: false,
+  isShortcutsModalOpen: false,
+  setIsShortcutsModalOpen: (open: boolean) => set({ isShortcutsModalOpen: open }),
+  toggleShortcutsModal: () => set((state) => ({ isShortcutsModalOpen: !state.isShortcutsModalOpen })),
 
   // Local Storage Persistence Layer for Last 5 Conversions
-  savedConversions: getInitialSavedConversions(),
-  activeSavedConversionId: getLastActiveConversionId(),
+  savedConversions: initialSavedRecords,
+  activeSavedConversionId: initialActiveSavedId,
 
   // Draft Auto-Save Configuration
   isAutoSaveEnabled: loadInitialAutoSave(),
@@ -254,6 +694,469 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   queue: [],
   isBulkProcessing: false,
   activeQueueId: null,
+
+  // ===== START NEW CODE: THEME & BATCH RENAME ACTIONS =====
+  appTheme: loadInitialTheme(),
+
+  // ===== START NEW CODE: FULLSCREEN, THUMBNAIL SIDEBAR, SEARCH & MODEL CASCADE IMPLEMENTATION =====
+  isFullscreen: false,
+  toggleFullscreen: () => set((state) => ({ isFullscreen: !state.isFullscreen })),
+  setIsFullscreen: (val: boolean) => set(() => ({ isFullscreen: val })),
+
+  isThumbnailSidebarOpen: true,
+  toggleThumbnailSidebar: () => set((state) => ({ isThumbnailSidebarOpen: !state.isThumbnailSidebarOpen })),
+  setIsThumbnailSidebarOpen: (val: boolean) => set(() => ({ isThumbnailSidebarOpen: val })),
+
+  currentActivePage: 1,
+  setCurrentActivePage: (page: number) => set(() => ({ currentActivePage: page })),
+
+  searchQuery: '',
+  setSearchQuery: (query: string) => set(() => ({ searchQuery: query })),
+  searchMatchCount: 0,
+  setSearchMatchCount: (count: number) => set(() => ({ searchMatchCount: count })),
+  currentSearchMatchIndex: 0,
+  setCurrentSearchMatchIndex: (idx: number) => set(() => ({ currentSearchMatchIndex: idx })),
+
+  geminiModelPreference: 'auto',
+  setGeminiModelPreference: (pref: GeminiModelPreference) => set(() => ({ geminiModelPreference: pref })),
+  activeModelUsed: initialResult?.modelUsed || 'gemini-flash-latest',
+  setActiveModelUsed: (model: string) => set(() => ({ activeModelUsed: model })),
+  // ===== END NEW CODE: FULLSCREEN, THUMBNAIL SIDEBAR, SEARCH & MODEL CASCADE IMPLEMENTATION =====
+
+  // ===== START NEW CODE: HIGH CONTRAST & CUSTOM TABLE MAPPING IMPLEMENTATION =====
+  isDocHighContrastEnabled: false,
+  setIsDocHighContrastEnabled: (enabled: boolean) => set(() => ({ isDocHighContrastEnabled: enabled })),
+  toggleDocHighContrast: () => set((state) => ({ isDocHighContrastEnabled: !state.isDocHighContrastEnabled })),
+
+  isCustomTableMappingOpen: false,
+  setIsCustomTableMappingOpen: (open: boolean) => set(() => ({ isCustomTableMappingOpen: open })),
+  toggleCustomTableMapping: () => set((state) => ({ isCustomTableMappingOpen: !state.isCustomTableMappingOpen })),
+  detectedTables: [],
+  setDetectedTables: (tables: any[]) => set(() => ({ detectedTables: tables })),
+  applyCustomTableColumnMapping: (updatedTables: any[]) => {
+    set(() => ({ detectedTables: updatedTables }));
+
+    // Transform active document HTML table headers with updated custom column names
+    const currentHtml = get().editedHtml || get().result?.htmlContent || '';
+    if (!currentHtml) return;
+
+    let modifiedHtml = currentHtml;
+    updatedTables.forEach((tbl) => {
+      tbl.columns.forEach((col: any) => {
+        if (col.originalName && col.mappedName && col.originalName !== col.mappedName) {
+          // Replace matching <th> headers
+          const thRegex = new RegExp(`<th([^>]*)>\\s*${col.originalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*</th>`, 'gi');
+          modifiedHtml = modifiedHtml.replace(thRegex, `<th$1>${col.mappedName}</th>`);
+        }
+      });
+    });
+
+    set(() => ({ editedHtml: modifiedHtml }));
+  },
+  // ===== END NEW CODE: HIGH CONTRAST & CUSTOM TABLE MAPPING IMPLEMENTATION =====
+
+  // ===== START NEW CODE: LANGUAGE DETECTION, TRANSLATION & WEB SPEECH API TTS IMPLEMENTATION =====
+  detectedLanguage: initialDetectedLanguage,
+  setDetectedLanguage: (lang: DetectedLanguage | null) => set(() => ({ detectedLanguage: lang })),
+
+  isTranslationModalOpen: false,
+  setIsTranslationModalOpen: (open: boolean) => set(() => ({ isTranslationModalOpen: open })),
+  isTranslating: false,
+  isTranslationOfferDismissed: false,
+  dismissTranslationOffer: () => set(() => ({ isTranslationOfferDismissed: true })),
+  originalBackupHtml: null,
+  originalBackupTitle: null,
+
+  translateDocument: async (targetLangCode: string) => {
+    const currentHtml = get().editedHtml || get().result?.htmlContent || '';
+    const currentResult = get().result;
+    if (!currentHtml || !currentResult) return false;
+
+    set(() => ({ isTranslating: true, isTranslationOfferDismissed: true }));
+    const currentTitle = currentResult.documentTitle;
+    const currentLang = get().detectedLanguage?.code || 'en';
+
+    try {
+      const currentModelPref = get().geminiModelPreference;
+      const response = await translateDocumentContent(currentHtml, targetLangCode, currentLang, currentTitle, currentModelPref);
+      
+      const prevHtml = get().originalBackupHtml || currentHtml;
+      const prevTitle = get().originalBackupTitle || currentTitle;
+
+      const updatedResult: ConversionResult = {
+        ...currentResult,
+        documentTitle: response.translatedTitle,
+        htmlContent: response.translatedHtml,
+        isTranslated: true,
+        detectedLanguage: response.targetLanguage ? {
+          code: response.targetLanguage.code,
+          name: response.targetLanguage.name,
+          nativeName: response.targetLanguage.nativeName,
+          flag: response.targetLanguage.flag,
+          confidence: 1.0,
+          isAutoDetected: false,
+        } : currentResult.detectedLanguage,
+        originalLanguage: currentResult.originalLanguage || get().detectedLanguage || undefined,
+        translatedAt: Date.now(),
+        modelUsed: response.modelUsed || currentResult.modelUsed,
+      };
+
+      // Rescan for low confidence markers if active
+      let finalEdited = response.translatedHtml;
+      let newFlags: LowConfidenceFlag[] = [];
+      if (get().isLowConfidenceHighlightEnabled) {
+        const scanned = scanAndInjectLowConfidenceMarkers(finalEdited);
+        finalEdited = scanned.flaggedHtml;
+        newFlags = scanned.flags;
+      }
+
+      const activeId = get().activeSavedConversionId;
+      if (activeId) {
+        updateRecentConversionHtml(activeId, finalEdited);
+      }
+
+      set(() => ({
+        result: updatedResult,
+        editedHtml: finalEdited,
+        lowConfidenceFlags: newFlags,
+        originalBackupHtml: prevHtml,
+        originalBackupTitle: prevTitle,
+        detectedLanguage: updatedResult.detectedLanguage || null,
+        exportConfig: {
+          ...get().exportConfig,
+          docTitle: response.translatedTitle,
+        },
+        isTranslating: false,
+        isTranslationModalOpen: false,
+      }));
+      return true;
+    } catch (err) {
+      console.error('Document translation error:', err);
+      set(() => ({ isTranslating: false }));
+      return false;
+    }
+  },
+
+  undoTranslation: () => {
+    const backupHtml = get().originalBackupHtml;
+    const backupTitle = get().originalBackupTitle;
+    const currentResult = get().result;
+    if (!backupHtml || !currentResult) return;
+
+    let restoredHtml = backupHtml;
+    let newFlags: LowConfidenceFlag[] = [];
+    if (get().isLowConfidenceHighlightEnabled) {
+      const scanned = scanAndInjectLowConfidenceMarkers(restoredHtml);
+      restoredHtml = scanned.flaggedHtml;
+      newFlags = scanned.flags;
+    }
+
+    const originalLang = currentResult.originalLanguage || detectLanguageFromText(backupHtml);
+
+    const revertedResult: ConversionResult = {
+      ...currentResult,
+      documentTitle: backupTitle || currentResult.documentTitle.replace(/\s*\[.*?\]|\s*\(.*?\)/g, ''),
+      htmlContent: backupHtml,
+      isTranslated: false,
+      detectedLanguage: originalLang,
+    };
+
+    const activeId = get().activeSavedConversionId;
+    if (activeId) {
+      updateRecentConversionHtml(activeId, restoredHtml);
+    }
+
+    set(() => ({
+      result: revertedResult,
+      editedHtml: restoredHtml,
+      lowConfidenceFlags: newFlags,
+      detectedLanguage: originalLang,
+      originalBackupHtml: null,
+      originalBackupTitle: null,
+      exportConfig: {
+        ...get().exportConfig,
+        docTitle: revertedResult.documentTitle,
+      },
+    }));
+  },
+
+  // Web Speech API Text-to-Speech
+  ttsState: {
+    status: 'idle',
+    currentVoiceURI: '',
+    rate: 1.0,
+    pitch: 1.0,
+    volume: 1.0,
+    isHighlightEnabled: true,
+    activeSpokenWord: '',
+    activeCharIndex: 0,
+    activeWordIndex: 0,
+    totalWords: 0,
+    progressPercent: 0,
+    readTarget: 'all',
+    activePageNumber: 1,
+  },
+  isTTSPlayerOpen: false,
+  setIsTTSPlayerOpen: (open: boolean) => set(() => ({ isTTSPlayerOpen: open })),
+  toggleTTSPlayer: () => set((state) => ({ isTTSPlayerOpen: !state.isTTSPlayerOpen })),
+
+  startTTS: (target = 'all', customContent?: string, pageNumber = 1) => {
+    const rawHtml = customContent || get().editedHtml || get().result?.htmlContent || '';
+    if (!rawHtml) return;
+
+    const lang = get().detectedLanguage?.code || 'en';
+    const state = get().ttsState;
+
+    speechSynth.speak(rawHtml, {
+      langCode: lang,
+      voiceURI: state.currentVoiceURI || undefined,
+      rate: state.rate,
+      pitch: state.pitch,
+      volume: state.volume,
+      isHtml: true,
+    });
+
+    set((s) => ({
+      isTTSPlayerOpen: true,
+      ttsState: {
+        ...s.ttsState,
+        status: 'playing',
+        readTarget: target,
+        activePageNumber: pageNumber,
+      },
+    }));
+  },
+
+  pauseTTS: () => {
+    speechSynth.pause();
+    set((s) => ({ ttsState: { ...s.ttsState, status: 'paused' } }));
+  },
+
+  resumeTTS: () => {
+    speechSynth.resume();
+    set((s) => ({ ttsState: { ...s.ttsState, status: 'playing' } }));
+  },
+
+  stopTTS: () => {
+    speechSynth.stop();
+    set((s) => ({
+      ttsState: {
+        ...s.ttsState,
+        status: 'idle',
+        activeSpokenWord: '',
+        progressPercent: 0,
+        activeCharIndex: 0,
+        activeWordIndex: 0,
+      },
+    }));
+  },
+
+  setTTSRate: (rate: number) => {
+    speechSynth.setRate(rate);
+    set((s) => ({ ttsState: { ...s.ttsState, rate } }));
+  },
+
+  setTTSPitch: (pitch: number) => {
+    speechSynth.setPitch(pitch);
+    set((s) => ({ ttsState: { ...s.ttsState, pitch } }));
+  },
+
+  setTTSVolume: (volume: number) => {
+    speechSynth.setVolume(volume);
+    set((s) => ({ ttsState: { ...s.ttsState, volume } }));
+  },
+
+  setTTSVoice: (voiceURI: string) => {
+    speechSynth.setVoice(voiceURI);
+    set((s) => ({ ttsState: { ...s.ttsState, currentVoiceURI: voiceURI } }));
+  },
+
+  toggleTTSHighlight: () => {
+    set((s) => ({
+      ttsState: {
+        ...s.ttsState,
+        isHighlightEnabled: !s.ttsState.isHighlightEnabled,
+      },
+    }));
+  },
+  // ===== END NEW CODE: LANGUAGE DETECTION, TRANSLATION & WEB SPEECH API TTS IMPLEMENTATION =====
+
+  // ===== START NEW CODE: AUTO-OCR SETTINGS & INGESTION TUNING IMPLEMENTATION =====
+  ingestionOcrSettings: DEFAULT_INGESTION_OCR_SETTINGS,
+
+  setIngestionOcrSettings: (settings: IngestionOcrSettings) => set(() => ({ ingestionOcrSettings: settings })),
+
+  updateIngestionOcrSetting: <K extends keyof IngestionOcrSettings>(key: K, value: IngestionOcrSettings[K]) => {
+    set((state) => ({
+      ingestionOcrSettings: {
+        ...state.ingestionOcrSettings,
+        [key]: value,
+      },
+    }));
+  },
+
+  autoConfigureOcrForLanguage: (lang: DetectedLanguage) => {
+    const computed = getAutoOcrSettingsForLanguage(lang);
+    set(() => ({
+      detectedLanguage: lang,
+      ingestionOcrSettings: computed,
+    }));
+  },
+
+  isOcrSettingsDrawerOpen: false,
+  setIsOcrSettingsDrawerOpen: (open: boolean) => set(() => ({ isOcrSettingsDrawerOpen: open })),
+  toggleOcrSettingsDrawer: () => set((state) => ({ isOcrSettingsDrawerOpen: !state.isOcrSettingsDrawerOpen })),
+  // ===== END NEW CODE: AUTO-OCR SETTINGS & INGESTION TUNING IMPLEMENTATION =====
+
+  // ===== START NEW CODE: OCR LOW-CONFIDENCE HIGHLIGHTER & VERIFICATION ACTIONS =====
+  isLowConfidenceHighlightEnabled: true,
+  lowConfidenceFlags: initialFlags,
+  activeFlagIndex: initialFlags.length > 0 ? 0 : 0,
+
+  toggleLowConfidenceHighlight: () => {
+    const nextState = !get().isLowConfidenceHighlightEnabled;
+    const currentHtml = get().editedHtml || get().result?.htmlContent || '';
+    
+    if (nextState) {
+      // Re-scan and inject markers
+      const { flaggedHtml, flags } = scanAndInjectLowConfidenceMarkers(currentHtml);
+      set(() => ({
+        isLowConfidenceHighlightEnabled: true,
+        editedHtml: flaggedHtml,
+        lowConfidenceFlags: flags,
+        activeFlagIndex: 0,
+      }));
+    } else {
+      // Strip markers so editor displays clean text
+      const clean = stripLowConfidenceMarkers(currentHtml);
+      set(() => ({
+        isLowConfidenceHighlightEnabled: false,
+        editedHtml: clean,
+      }));
+    }
+  },
+
+  setLowConfidenceFlags: (flags: LowConfidenceFlag[]) => set(() => ({ lowConfidenceFlags: flags })),
+  setActiveFlagIndex: (index: number) => set(() => ({ activeFlagIndex: index })),
+
+  verifyFlag: (flagId: string, correctedText?: string) => {
+    const flags = get().lowConfidenceFlags;
+    const currentHtml = get().editedHtml;
+    const flag = flags.find((f) => f.id === flagId);
+    if (!flag) return;
+
+    let updatedHtml = currentHtml;
+    const regex = new RegExp(`<mark[^>]*id="${flagId}"[^>]*>([\\s\\S]*?)<\\/mark>`, 'i');
+    const replacementText = correctedText !== undefined ? correctedText : flag.originalWord;
+    updatedHtml = updatedHtml.replace(regex, replacementText);
+
+    const updatedFlags = flags.map((f) => (f.id === flagId ? { ...f, isVerified: true } : f));
+    set(() => ({
+      editedHtml: updatedHtml,
+      lowConfidenceFlags: updatedFlags,
+    }));
+  },
+
+  dismissFlag: (flagId: string) => {
+    get().verifyFlag(flagId);
+  },
+
+  verifyAllFlags: () => {
+    const currentHtml = get().editedHtml;
+    const clean = stripLowConfidenceMarkers(currentHtml);
+    const updatedFlags = get().lowConfidenceFlags.map((f) => ({ ...f, isVerified: true }));
+    set(() => ({
+      editedHtml: clean,
+      lowConfidenceFlags: updatedFlags,
+    }));
+  },
+  // ===== END NEW CODE: OCR LOW-CONFIDENCE HIGHLIGHTER & VERIFICATION ACTIONS =====
+
+  setAppTheme: (theme: AppTheme) => {
+    applyThemeToDocument(theme);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(THEME_STORAGE_KEY, theme);
+      }
+    } catch (e) {
+      console.error('Failed to persist theme:', e);
+    }
+    set(() => ({ appTheme: theme }));
+  },
+
+  toggleAppTheme: () => {
+    const current = get().appTheme;
+    const next: AppTheme = current === 'cyberpunk' ? 'light' : 'cyberpunk';
+    get().setAppTheme(next);
+  },
+
+  updateHistoryItemCategory: (id: string, category: DocumentCategory) => {
+    const current = get().history;
+    const updated = current.map((item) => {
+      if (item.id === id) {
+        return { ...item, category };
+      }
+      return item;
+    });
+    saveHistoryToStorage(updated);
+    set(() => ({ history: updated }));
+  },
+
+  batchRenameHistoryItems: (ids: string[], config: BatchRenameConfig) => {
+    const targetIds = new Set(ids);
+    const current = get().history;
+    const { prefix, suffix, findText, replaceText } = config;
+
+    const updated = current.map((item) => {
+      if (!targetIds.has(item.id)) return item;
+
+      let currentBaseName = (item.originalFileName || item.title).replace(/\.pdf$/i, '');
+
+      // Apply find and replace if provided
+      if (findText) {
+        try {
+          // Replace all occurrences
+          currentBaseName = currentBaseName.split(findText).join(replaceText);
+        } catch (err) {
+          console.warn('Regex or string replace error:', err);
+        }
+      }
+
+      // Apply prefix and suffix
+      const newBaseName = `${prefix || ''}${currentBaseName}${suffix || ''}`;
+      const newTitle = newBaseName;
+      const newFileName = `${newBaseName}.pdf`;
+
+      return {
+        ...item,
+        title: newTitle,
+        originalFileName: newFileName,
+      };
+    });
+
+    saveHistoryToStorage(updated);
+
+    // Also update current active document title if active document was renamed
+    const activeDoc = get().result;
+    const activeId = get().activeSavedConversionId;
+    let nextResult = activeDoc;
+    if (activeDoc && activeId && targetIds.has(activeId)) {
+      const matchingRenamed = updated.find((u) => u.id === activeId);
+      if (matchingRenamed) {
+        nextResult = {
+          ...activeDoc,
+          documentTitle: matchingRenamed.title,
+        };
+      }
+    }
+
+    set(() => ({
+      history: updated,
+      result: nextResult,
+      exportConfig: nextResult ? { ...get().exportConfig, docTitle: nextResult.documentTitle } : get().exportConfig,
+    }));
+  },
+  // ===== END NEW CODE: THEME & BATCH RENAME ACTIONS =====
 
   setPdf: (pdf) => set(() => ({
     currentPdf: pdf,
@@ -275,16 +1178,39 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const docId = activePdf?.id || 'doc_' + Date.now();
     const fileName = activePdf?.name || `${result.documentTitle}.pdf`;
 
+    // Automatically detect primary language and metadata tags if not provided
+    const detectedLang = result.detectedLanguage || detectLanguageFromText(result.htmlContent);
+    const classification = classifyDocument(
+      result.documentTitle,
+      result.htmlContent
+    );
+    const enrichedResult: ConversionResult = {
+      ...result,
+      detectedLanguage: detectedLang,
+      tags: result.tags && result.tags.length > 0 ? result.tags : classification.tags,
+    };
+
+    // Automatically scan and inject low-confidence OCR markers if enabled
+    const isLowConfEnabled = get().isLowConfidenceHighlightEnabled;
+    let initialHtml = enrichedResult.htmlContent;
+    let detectedFlags: LowConfidenceFlag[] = [];
+
+    if (isLowConfEnabled) {
+      const scanResult = scanAndInjectLowConfidenceMarkers(initialHtml);
+      initialHtml = scanResult.flaggedHtml;
+      detectedFlags = scanResult.flags;
+    }
+
     // Automatically persist to the last 5 conversion results layer
     const savedRecord: SavedConversionRecord = {
       id: docId,
-      title: result.documentTitle,
+      title: enrichedResult.documentTitle,
       originalFileName: fileName,
       timestamp: Date.now(),
-      result,
-      editedHtml: result.htmlContent,
+      result: enrichedResult,
+      editedHtml: initialHtml,
       fileSize: activePdf?.size || 150000,
-      pageCount: result.stats.pages || 1,
+      pageCount: enrichedResult.stats.pages || 1,
       pdfMetadata: activePdf ? {
         id: activePdf.id,
         name: activePdf.name,
@@ -298,16 +1224,21 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const updatedSaved = saveRecentConversion(savedRecord);
 
     set(() => ({
-      result,
-      editedHtml: result.htmlContent,
+      result: enrichedResult,
+      editedHtml: initialHtml,
+      lowConfidenceFlags: detectedFlags,
+      activeFlagIndex: 0,
       status: 'completed',
       progressPercent: 100,
       statusMessage: 'CONVERSION_SUCCESSFUL // DOCUMENT_READY',
       savedConversions: updatedSaved,
       activeSavedConversionId: docId,
+      detectedLanguage: detectedLang,
+      isTranslationOfferDismissed: false,
+      activeModelUsed: enrichedResult.modelUsed || get().activeModelUsed,
       exportConfig: {
         ...get().exportConfig,
-        docTitle: result.documentTitle,
+        docTitle: enrichedResult.documentTitle,
       },
     }));
   },
@@ -330,9 +1261,23 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   })),
 
   addToHistory: (item) => {
+    // Ensure item has automated category and tags assigned based on content and title
+    const classification = classifyDocument(
+      item.title || item.originalFileName || '',
+      item.htmlContent || item.markdownContent || ''
+    );
+    const resolvedCategory = item.category || classification.category;
+    const resolvedTags = item.tags && item.tags.length > 0 ? item.tags : classification.tags;
+
+    const categorizedItem: ConversionHistoryItem = {
+      ...item,
+      category: resolvedCategory,
+      tags: resolvedTags,
+    };
+
     const current = get().history;
-    const filtered = current.filter((h) => h.id !== item.id);
-    const updated = [item, ...filtered].slice(0, 50);
+    const filtered = current.filter((h) => h.id !== categorizedItem.id);
+    const updated = [categorizedItem, ...filtered].slice(0, 50);
     saveHistoryToStorage(updated);
 
     // Automatically persist to the last 5 conversion results layer
@@ -499,9 +1444,19 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
   loadSavedConversion: (item) => {
     setLastActiveConversionId(item.id);
+    let targetHtml = item.editedHtml || item.result.htmlContent;
+    let detectedFlags: LowConfidenceFlag[] = [];
+    if (get().isLowConfidenceHighlightEnabled) {
+      const scanResult = scanAndInjectLowConfidenceMarkers(targetHtml);
+      targetHtml = scanResult.flaggedHtml;
+      detectedFlags = scanResult.flags;
+    }
+
     set(() => ({
       activeSavedConversionId: item.id,
-      editedHtml: item.editedHtml || item.result.htmlContent,
+      editedHtml: targetHtml,
+      lowConfidenceFlags: detectedFlags,
+      activeFlagIndex: 0,
       status: 'completed',
       progressPercent: 100,
       statusMessage: `PERSISTENT_CONVERSION_RESTORED: ${item.title}`,
@@ -556,9 +1511,19 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
   loadHistoryItem: (item) => {
     setLastActiveConversionId(item.id);
+    let targetHtml = item.htmlContent;
+    let detectedFlags: LowConfidenceFlag[] = [];
+    if (get().isLowConfidenceHighlightEnabled) {
+      const scanResult = scanAndInjectLowConfidenceMarkers(targetHtml);
+      targetHtml = scanResult.flaggedHtml;
+      detectedFlags = scanResult.flags;
+    }
+
     set(() => ({
       activeSavedConversionId: item.id,
-      editedHtml: item.htmlContent,
+      editedHtml: targetHtml,
+      lowConfidenceFlags: detectedFlags,
+      activeFlagIndex: 0,
       status: 'completed',
       statusMessage: `HISTORIC_RECORD_LOADED: ${item.title}`,
       result: {
@@ -676,5 +1641,48 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   },
   // ===== END NEW CODE: BULK CLEAR ALL SAVED SESSION DATA (SINGLE CLICK) =====
 }));
+
+// ===== START NEW CODE: BIND SPEECH SYNTHESIS REAL-TIME CALLBACKS TO ZUSTAND STORE =====
+speechSynth.setCallbacks({
+  onStatusChange: (status) => {
+    useGameStore.setState((state) => ({
+      ttsState: { ...state.ttsState, status },
+    }));
+  },
+  onWordBoundary: (word, charIndex, wordIndex, totalWords) => {
+    const progress = totalWords > 0 ? Math.min(100, Math.round(((wordIndex + 1) / totalWords) * 100)) : 0;
+    useGameStore.setState((state) => ({
+      ttsState: {
+        ...state.ttsState,
+        activeSpokenWord: word,
+        activeCharIndex: charIndex,
+        activeWordIndex: wordIndex,
+        totalWords,
+        progressPercent: progress,
+      },
+    }));
+  },
+  onEnd: () => {
+    useGameStore.setState((state) => ({
+      ttsState: {
+        ...state.ttsState,
+        status: 'idle',
+        activeSpokenWord: '',
+        progressPercent: 100,
+      },
+    }));
+  },
+  onError: (err) => {
+    console.warn('[WebSpeechSynth] Error event:', err);
+    useGameStore.setState((state) => ({
+      ttsState: {
+        ...state.ttsState,
+        status: 'idle',
+      },
+    }));
+  },
+});
+// ===== END NEW CODE: BIND SPEECH SYNTHESIS REAL-TIME CALLBACKS TO ZUSTAND STORE =====
+
 // ===== END NEW CODE: DOCUMENT & CONVERSION STORE WITH BULK QUEUE & LOCAL PERSISTENCE =====
 

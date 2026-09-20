@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Columns2, 
   FileText, 
@@ -10,14 +10,25 @@ import {
   Cpu,
   Zap,
   FolderOpen,
-  BookOpen
+  BookOpen,
+  Maximize2,
+  Minimize2,
+  Bot,
+  Contrast,
+  Table as TableIcon,
+  Copy,
+  Check
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { LiveDocPreview } from './LiveDocPreview.tsx';
 import { ReadabilityReport } from './ReadabilityReport.tsx';
+import { CustomTableColumnMapperModal, DetectedTableSchema } from './CustomTableColumnMapperModal.tsx';
 import { CyberBadge } from '../common/CyberBadge.tsx';
 import { CyberButton } from '../common/CyberButton.tsx';
 import { cyberAudio } from '../../utils/audioSynth.ts';
+import { GeminiModelPreference } from '../../types/index.ts';
+
+// ===== START NEW CODE: COMPARISON VIEW WITH FULLSCREEN DISTRACTION-FREE & MODEL CASCADE =====
 
 export const ComparisonView: React.FC = () => {
   const { 
@@ -29,11 +40,36 @@ export const ComparisonView: React.FC = () => {
     savedConversions,
     activeSavedConversionId,
     loadSavedConversion,
-    isAutoSaveEnabled
+    isAutoSaveEnabled,
+    isFullscreen,
+    toggleFullscreen,
+    setIsFullscreen,
+    geminiModelPreference,
+    setGeminiModelPreference,
+    activeModelUsed,
+    isDocHighContrastEnabled,
+    toggleDocHighContrast,
+    isCustomTableMappingOpen,
+    setIsCustomTableMappingOpen,
+    detectedTables,
+    applyCustomTableColumnMapping
   } = useGameStore();
 
   const [highlightTables, setHighlightTables] = useState(false);
   const [highlightTypography, setHighlightTypography] = useState(false);
+  const [copyTextSuccess, setCopyTextSuccess] = useState(false);
+
+  // Global Escape key handler to exit fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+        cyberAudio.playCyberClick();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen, setIsFullscreen]);
 
   // ===== START NEW CODE: REAL-TIME DYNAMIC WORD & CHARACTER COUNT CALCULATOR =====
   const rawHtml = editedHtml || result?.htmlContent || '';
@@ -45,44 +81,49 @@ export const ComparisonView: React.FC = () => {
     .replace(/\s+/g, ' ')
     .trim();
 
+  const handleCopyPlainText = async () => {
+    try {
+      if (!cleanDocumentText) {
+        cyberAudio.playAlertBuzz();
+        return;
+      }
+      await navigator.clipboard.writeText(cleanDocumentText);
+      cyberAudio.playSuccessChime();
+      setCopyTextSuccess(true);
+      setTimeout(() => setCopyTextSuccess(false), 2200);
+    } catch (err) {
+      console.error('Failed to copy plain text to clipboard:', err);
+      cyberAudio.playAlertBuzz();
+    }
+  };
+
   const dynamicWordCount = cleanDocumentText ? cleanDocumentText.split(/\s+/).filter(Boolean).length : 0;
   const dynamicCharCount = cleanDocumentText.length;
   const dynamicCharNoSpaces = cleanDocumentText.replace(/\s/g, '').length;
   const estimatedReadTimeMinutes = Math.max(1, Math.ceil(dynamicWordCount / 200));
   // ===== END NEW CODE: REAL-TIME DYNAMIC WORD & CHARACTER COUNT CALCULATOR =====
 
+  const containerClasses = isFullscreen
+    ? 'fixed inset-0 z-50 bg-[#000000] p-2 sm:p-4 flex flex-col h-screen w-screen overflow-hidden'
+    : 'flex flex-col h-full space-y-3';
+
   return (
-    <div className="flex flex-col h-full space-y-3">
-      {/* Top View Selector Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#0A0A0C] border border-neutral-800 p-2.5 rounded">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs uppercase text-neutral-400 font-bold flex items-center gap-1.5">
+    <div id="comparison-view-container" className={containerClasses}>
+      {/* Top Tactical Bar: Inspection Mode & Fullscreen Controls */}
+      <div className="flex items-center justify-between gap-3 bg-[#0A0A0C] border border-neutral-800 p-2.5 rounded overflow-x-auto scrollbar-none max-md:flex-nowrap shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-mono text-xs uppercase text-neutral-400 font-bold flex items-center gap-1.5 shrink-0">
             <Layers className="w-3.5 h-3.5 text-[#FF003C]" />
             INSPECTION MODE:
           </span>
 
-          <div className="flex items-center border border-neutral-800 rounded bg-neutral-950 p-0.5">
-            <button
-              onClick={() => {
-                setViewMode('split');
-                cyberAudio.playCyberClick();
-              }}
-              className={`px-2.5 py-1 text-xs font-mono rounded flex items-center gap-1.5 transition-all ${
-                viewMode === 'split'
-                  ? 'bg-[#FF003C] text-white font-bold shadow-[0_0_8px_rgba(255,0,60,0.4)]'
-                  : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <Columns2 className="w-3.5 h-3.5" />
-              <span>SPLIT DUAL-VIEW</span>
-            </button>
-
+          <div className="flex items-center border border-neutral-800 rounded bg-neutral-950 p-0.5 overflow-x-auto scrollbar-none whitespace-nowrap shrink-0">
             <button
               onClick={() => {
                 setViewMode('doc_only');
                 cyberAudio.playCyberClick();
               }}
-              className={`px-2.5 py-1 text-xs font-mono rounded flex items-center gap-1.5 transition-all ${
+              className={`px-2.5 py-1 text-xs font-mono rounded flex items-center gap-1.5 transition-all shrink-0 ${
                 viewMode === 'doc_only'
                   ? 'bg-[#FF003C] text-white font-bold shadow-[0_0_8px_rgba(255,0,60,0.4)]'
                   : 'text-neutral-400 hover:text-white'
@@ -97,7 +138,7 @@ export const ComparisonView: React.FC = () => {
                 setViewMode('code');
                 cyberAudio.playCyberClick();
               }}
-              className={`px-2.5 py-1 text-xs font-mono rounded flex items-center gap-1.5 transition-all ${
+              className={`px-2.5 py-1 text-xs font-mono rounded flex items-center gap-1.5 transition-all shrink-0 ${
                 viewMode === 'code'
                   ? 'bg-[#FF003C] text-white font-bold shadow-[0_0_8px_rgba(255,0,60,0.4)]'
                   : 'text-neutral-400 hover:text-white'
@@ -112,7 +153,7 @@ export const ComparisonView: React.FC = () => {
                 setViewMode('readability');
                 cyberAudio.playCyberClick();
               }}
-              className={`px-2.5 py-1 text-xs font-mono rounded flex items-center gap-1.5 transition-all ${
+              className={`px-2.5 py-1 text-xs font-mono rounded flex items-center gap-1.5 transition-all shrink-0 ${
                 viewMode === 'readability'
                   ? 'bg-[#FF003C] text-white font-bold shadow-[0_0_8px_rgba(255,0,60,0.4)]'
                   : 'text-neutral-400 hover:text-white'
@@ -124,36 +165,125 @@ export const ComparisonView: React.FC = () => {
           </div>
         </div>
 
-        {/* Feature Highlights Toggles */}
-        {result && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setHighlightTables(!highlightTables)}
-              className={`px-2 py-1 text-[11px] font-mono border rounded transition-colors ${
-                highlightTables
-                  ? 'border-emerald-500 bg-emerald-950/40 text-emerald-400'
-                  : 'border-neutral-800 text-neutral-500 hover:border-neutral-700'
-              }`}
+        {/* Model Cascade Indicator & Fullscreen Button */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Gemini Auto-Cascade Model Selector */}
+          <div className="flex items-center gap-1 bg-black border border-neutral-800 rounded px-2 py-1 text-[11px] font-mono">
+            <Bot className="w-3.5 h-3.5 text-[#E056FD] shrink-0" />
+            <select
+              value={geminiModelPreference}
+              onChange={(e) => {
+                setGeminiModelPreference(e.target.value as GeminiModelPreference);
+                cyberAudio.playCyberClick();
+              }}
+              className="bg-transparent text-neutral-300 outline-none text-[11px] cursor-pointer hover:text-white"
+              title="Select specific model or rely on automatic multi-model failover cascade"
             >
-              HIGHLIGHT TABLES
-            </button>
-
-            <button
-              onClick={() => setHighlightTypography(!highlightTypography)}
-              className={`px-2 py-1 text-[11px] font-mono border rounded transition-colors ${
-                highlightTypography
-                  ? 'border-[#E056FD] bg-[#E056FD]/20 text-[#E056FD]'
-                  : 'border-neutral-800 text-neutral-500 hover:border-neutral-700'
-              }`}
-            >
-              HIGHLIGHT FONTS
-            </button>
+              <option value="auto" className="bg-neutral-900 text-white">⚡ AUTO-CASCADE (FAILOVER ENABLED)</option>
+              <option value="gemini-2.5-flash" className="bg-neutral-900 text-white">GEMINI 2.5 FLASH (RECOMMENDED)</option>
+              <option value="gemini-2.5-flash-lite" className="bg-neutral-900 text-white">GEMINI 2.5 FLASH LITE</option>
+              <option value="gemini-2.5-pro" className="bg-neutral-900 text-white">GEMINI 2.5 PRO</option>
+              <option value="gemini-2.0-flash" className="bg-neutral-900 text-white">GEMINI 2.0 FLASH</option>
+              <option value="gemini-flash-latest" className="bg-neutral-900 text-white">GEMINI FLASH LATEST</option>
+              <option value="gemini-3.1-flash-lite" className="bg-neutral-900 text-white">GEMINI 3.1 FLASH LITE</option>
+              <option value="gemini-3.8-flash" className="bg-neutral-900 text-white">GEMINI 3.8 FLASH</option>
+            </select>
           </div>
-        )}
+
+          {/* Feature Highlights Toggles */}
+          {result && (
+            <div className="hidden lg:flex items-center gap-1.5">
+              <button
+                onClick={() => setHighlightTables(!highlightTables)}
+                className={`px-2 py-1 text-[11px] font-mono border rounded transition-colors ${
+                  highlightTables
+                    ? 'border-emerald-500 bg-emerald-950/40 text-emerald-400'
+                    : 'border-neutral-800 text-neutral-500 hover:border-neutral-700'
+                }`}
+              >
+                TABLES
+              </button>
+
+              <button
+                onClick={() => setHighlightTypography(!highlightTypography)}
+                className={`px-2 py-1 text-[11px] font-mono border rounded transition-colors ${
+                  highlightTypography
+                    ? 'border-[#E056FD] bg-[#E056FD]/20 text-[#E056FD]'
+                    : 'border-neutral-800 text-neutral-500 hover:border-neutral-700'
+                }`}
+              >
+                FONTS
+              </button>
+            </div>
+          )}
+
+          {/* Copy Plain Text Content Button */}
+          <button
+            id="btn-copy-plain-text"
+            onClick={handleCopyPlainText}
+            className={`px-2.5 py-1 text-xs font-mono rounded border flex items-center gap-1.5 font-bold transition-all shrink-0 ${
+              copyTextSuccess
+                ? 'bg-emerald-500 text-black border-emerald-400 font-extrabold shadow-[0_0_12px_rgba(16,185,129,0.5)]'
+                : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:text-white hover:border-[#FF003C]'
+            }`}
+            title="Copy plain text content of converted document to system clipboard"
+          >
+            {copyTextSuccess ? <Check className="w-3.5 h-3.5 text-black" /> : <Copy className="w-3.5 h-3.5 text-[#FF003C]" />}
+            <span>{copyTextSuccess ? 'COPIED TEXT!' : 'COPY TEXT'}</span>
+          </button>
+
+          {/* Table Column Mapping Engine Button */}
+          <button
+            onClick={() => {
+              cyberAudio.playCyberClick();
+              setIsCustomTableMappingOpen(true);
+            }}
+            className="px-2.5 py-1 text-xs font-mono rounded border border-neutral-700 bg-neutral-900 text-neutral-300 hover:text-white hover:border-[#E056FD] flex items-center gap-1.5 font-bold transition-all shrink-0"
+            title="Detect complex multi-page tables & define custom column mappings"
+          >
+            <TableIcon className="w-3.5 h-3.5 text-[#E056FD]" />
+            <span className="hidden sm:inline">TABLE MAPPER</span>
+          </button>
+
+          {/* High-Contrast Accessibility Mode Toggle */}
+          <button
+            onClick={() => {
+              toggleDocHighContrast();
+              cyberAudio.playCyberClick();
+            }}
+            className={`px-2.5 py-1 text-xs font-mono rounded border flex items-center gap-1.5 font-bold transition-all shrink-0 ${
+              isDocHighContrastEnabled
+                ? 'bg-amber-400 text-black border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.6)] font-extrabold'
+                : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:text-white hover:border-amber-400'
+            }`}
+            title="Toggle High-Contrast accessibility mode for document preview"
+          >
+            <Contrast className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">HIGH CONTRAST</span>
+          </button>
+
+          {/* Fullscreen Toggle Button */}
+          <button
+            id="btn-fullscreen-toggle"
+            onClick={() => {
+              toggleFullscreen();
+              cyberAudio.playCyberClick();
+            }}
+            className={`px-2.5 py-1 text-xs font-mono rounded border flex items-center gap-1.5 font-bold transition-all shrink-0 ${
+              isFullscreen
+                ? 'bg-[#FF003C] text-white border-[#FF003C] shadow-[0_0_10px_rgba(255,0,60,0.5)]'
+                : 'bg-neutral-900 border-neutral-700 text-neutral-300 hover:text-white hover:border-[#FF003C]'
+            }`}
+            title={isFullscreen ? 'Exit Distraction-Free Fullscreen (Esc)' : 'Expand Document Editor to Fullscreen'}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5 text-[#FF003C]" />}
+            <span>{isFullscreen ? 'EXIT FULLSCREEN' : 'FULLSCREEN'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Document Switcher Tab Bar if multiple saved documents exist in persistence layer */}
-      {savedConversions.length > 1 && (
+      {!isFullscreen && savedConversions.length > 1 && (
         <div className="flex items-center gap-2 overflow-x-auto px-3 py-2 bg-[#0A0A0C] border border-neutral-800/80 rounded text-xs font-mono">
           <span className="text-[10px] text-neutral-400 uppercase tracking-wider shrink-0 flex items-center gap-1 font-bold">
             <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />
@@ -186,105 +316,10 @@ export const ComparisonView: React.FC = () => {
       )}
 
       {/* Main Viewport Container */}
-      <div className="flex-1 min-h-[650px] relative">
+      <div className="flex-1 min-h-[500px] relative overflow-hidden flex flex-col">
         {viewMode === 'split' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full">
-            {/* Left: Original PDF Topology & Specs */}
-            <div className="flex flex-col h-full bg-[#0A0A0C] border border-neutral-800 rounded overflow-hidden">
-              <div className="px-4 py-2.5 bg-neutral-950 border-b border-neutral-800 flex items-center justify-between text-xs font-mono">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[#FF003C]" />
-                  <span className="font-bold text-white uppercase">ORIGINAL PDF SOURCE TOPOLOGY</span>
-                </div>
-                <CyberBadge label={currentPdf ? currentPdf.name : 'NO_PAYLOAD'} variant="neutral" />
-              </div>
-
-              <div className="flex-1 p-6 overflow-y-auto space-y-4">
-                {result ? (
-                  <div className="space-y-4">
-                    {/* Fidelity Card */}
-                    <div className="p-4 border border-[#FF003C]/30 bg-black/60 rounded">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-mono text-xs text-[#FF003C] font-bold flex items-center gap-1.5">
-                          <Zap className="w-4 h-4" /> RECONSTRUCTION METRICS
-                        </span>
-                        <span className="font-mono text-sm text-emerald-400 font-bold">
-                          {result.stats.fidelityScore}% MATCH
-                        </span>
-                      </div>
-                      <p className="font-mono text-xs text-neutral-400">
-                        Visual geometry parsed through deep neural multimodal reasoning. All tables, cells, and inline styles are formatted directly for Google Docs copy/paste compatibility.
-                      </p>
-                    </div>
-
-                    {/* Detected Structural Elements */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 border border-neutral-800 bg-neutral-950 rounded">
-                        <div className="font-mono text-[10px] text-neutral-500 uppercase">Tables Preserved</div>
-                        <div className="font-mono text-xl text-white font-bold mt-1">
-                          {result.detectedElements.tablesCount}
-                        </div>
-                        <span className="text-[10px] text-emerald-400 font-mono">Full border & cell padding</span>
-                      </div>
-
-                      <div className="p-3 border border-neutral-800 bg-neutral-950 rounded">
-                        <div className="font-mono text-[10px] text-neutral-500 uppercase">Headings Retained</div>
-                        <div className="font-mono text-xl text-white font-bold mt-1">
-                          {result.detectedElements.headingsCount}
-                        </div>
-                        <span className="text-[10px] text-[#E056FD] font-mono">H1 / H2 / H3 hierarchies</span>
-                      </div>
-                    </div>
-
-                    {/* Detected Typography & Color Bus */}
-                    <div className="p-3.5 border border-neutral-800 bg-neutral-950 rounded space-y-2">
-                      <span className="font-mono text-xs text-white font-bold uppercase block">
-                        Preserved Font Families & Palette
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {result.detectedElements.fontsDetected.map((f, i) => (
-                          <span key={i} className="px-2 py-0.5 bg-neutral-900 border border-neutral-700 text-xs font-mono text-neutral-300 rounded">
-                            {f}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-2 pt-2">
-                        <span className="text-[10px] font-mono text-neutral-500">PALETTE:</span>
-                        {result.detectedElements.colorPalette.map((c, i) => (
-                          <div key={i} className="flex items-center gap-1 font-mono text-[10px] text-neutral-400">
-                            <span className="w-3 h-3 rounded-full border border-neutral-600" style={{ backgroundColor: c }} />
-                            <span>{c}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Blueprint Comparison Notes */}
-                    <div className="p-3.5 border border-neutral-800 bg-black rounded text-xs font-mono space-y-2 text-neutral-400">
-                      <div className="text-white font-bold flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        Why Google's Native Tool Fails:
-                      </div>
-                      <p className="text-[11px] leading-relaxed">
-                        Google's built-in PDF importer flattens text into raw unstyled blobs, breaks table boundaries, and loses custom margins. This pipeline generates Google Docs compliant HTML blocks with inline CSS styles so tables and typographic scales paste natively.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-64 flex flex-col items-center justify-center text-center">
-                    <Cpu className="w-8 h-8 text-neutral-600 mb-2 animate-pulse" />
-                    <span className="font-mono text-xs text-neutral-500 uppercase">
-                      NO_PDF_LOADED_YET
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Right: Live Google Doc Formatted Preview */}
-            <div className="h-full">
-              <LiveDocPreview />
-            </div>
+          <div className="h-full">
+            <LiveDocPreview />
           </div>
         )}
 
@@ -335,7 +370,7 @@ export const ComparisonView: React.FC = () => {
             <span className="text-neutral-700 hidden sm:inline">&bull;</span>
             <button
               onClick={() => {
-                setViewMode(viewMode === 'readability' ? 'split' : 'readability');
+                setViewMode(viewMode === 'readability' ? 'doc_only' : 'readability');
                 cyberAudio.playCyberClick();
               }}
               className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 underline decoration-dotted"
@@ -381,7 +416,14 @@ export const ComparisonView: React.FC = () => {
           </div>
         </footer>
       )}
-      {/* ===== END NEW CODE: DYNAMIC WORD AND CHARACTER COUNT FOOTER INDICATOR ===== */}
+
+      {/* Complex Multi-Page Table Column Mapper Modal */}
+      <CustomTableColumnMapperModal
+        isOpen={isCustomTableMappingOpen}
+        onClose={() => setIsCustomTableMappingOpen(false)}
+        detectedTables={detectedTables}
+        onApplyMapping={(updatedTables) => applyCustomTableColumnMapping(updatedTables)}
+      />
     </div>
   );
 };

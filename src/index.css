@@ -34,19 +34,9 @@
   background: #FF003C;
 }
 
-/* Scanlines Effect */
+/* Scanlines Effect Removed per User Feedback to Ensure Crystal-Clear Text Legibility */
 .scanlines-overlay {
-  background: linear-gradient(
-    rgba(18, 16, 16, 0) 50%, 
-    rgba(0, 0, 0, 0.4) 50%
-  ), linear-gradient(
-    90deg,
-    rgba(255, 0, 60, 0.03),
-    rgba(0, 255, 128, 0.01),
-    rgba(224, 86, 253, 0.03)
-  );
-  background-size: 100% 3px, 6px 100%;
-  pointer-events: none;
+  display: none !important;
 }
 
 /* Cyber CRT Flicker */
@@ -71,3 +61,88 @@
   border-color: #FF003C;
   box-shadow: inset 0 0 8px rgba(255, 0, 60, 0.2), 0 0 8px rgba(255, 0, 60, 0.2);
 }
+
+/* ===== START NEW CODE: HIGH-CONTRAST LIGHT MODE RULES FOR SUPERIOR DOCUMENT READABILITY ===== */
+html.theme-light,
+body.theme-light,
+.theme-light {
+  background-color: #F8F9FA !important;
+  color: #09090B !important;
+}
+
+.theme-light ::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+.theme-light ::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+}
+
+.theme-light ::-webkit-scrollbar-thumb:hover {
+  background: #FF003C;
+}
+
+.theme-light .bg-black,
+.theme-light .bg-\[\#08080A\],
+.theme-light .bg-\[\#0A0A0D\],
+.theme-light .bg-\[\#060608\],
+.theme-light .bg-\[\#050507\],
+.theme-light .bg-\[\#070709\],
+.theme-light .bg-\[\#0D0D12\],
+.theme-light .bg-\[\#0D0D10\],
+.theme-light .bg-neutral-950 {
+  background-color: #FFFFFF !important;
+}
+
+.theme-light .bg-neutral-900,
+.theme-light .bg-neutral-900\/60 {
+  background-color: #F4F4F5 !important;
+}
+
+.theme-light .border-neutral-800,
+.theme-light .border-neutral-700,
+.theme-light .border-neutral-900 {
+  border-color: #E2E8F0 !important;
+}
+
+.theme-light .text-white {
+  color: #09090B !important;
+}
+
+.theme-light .text-neutral-200,
+.theme-light .text-neutral-300 {
+  color: #18181B !important;
+}
+
+.theme-light .text-neutral-400 {
+  color: #52525B !important;
+}
+
+.theme-light .text-neutral-500 {
+  color: #71717A !important;
+}
+
+.theme-light .shadow-\[0_0_20px_rgba\(0\,0\,0\,0\.5\)\] {
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08) !important;
+}
+
+.theme-light .prose-invert {
+  color: #18181B !important;
+}
+
+.theme-light .prose-invert h1,
+.theme-light .prose-invert h2,
+.theme-light .prose-invert h3,
+.theme-light .prose-invert h4 {
+  color: #09090B !important;
+}
+/* Hide scrollbar utility */
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+}
+.scrollbar-none {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+/* ===== END NEW CODE: HIGH-CONTRAST LIGHT MODE RULES FOR SUPERIOR DOCUMENT READABILITY ===== */
+

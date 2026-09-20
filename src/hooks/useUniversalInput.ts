@@ -112,12 +112,10 @@ export function useUniversalInput() {
         }
         // LB / RB (Buttons 4 and 5) -> Cycle view modes
         if (gp.buttons[4]?.pressed) {
-          if (viewMode === 'doc_only') setViewMode('split');
-          else if (viewMode === 'code') setViewMode('doc_only');
+          if (viewMode === 'code') setViewMode('doc_only');
         }
         if (gp.buttons[5]?.pressed) {
-          if (viewMode === 'split') setViewMode('doc_only');
-          else if (viewMode === 'doc_only') setViewMode('code');
+          if (viewMode === 'doc_only') setViewMode('code');
         }
       }
 

@@ -22,15 +22,23 @@ import {
   FileCode,
   Info,
   Sliders,
-  HardDrive
+  HardDrive,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore.ts';
 import { CyberButton } from '../common/CyberButton.tsx';
+import { CyberBadge } from '../common/CyberBadge.tsx';
 import { formatBytes } from '../../utils/formatters.ts';
 import { convertPdfToGoogleDoc } from '../../services/geminiService.ts';
 import { cyberAudio } from '../../utils/audioSynth.ts';
-import { QueueItem, PdfTechnicalMetadata } from '../../types/index.ts';
+import { QueueItem, PdfTechnicalMetadata, DetectedLanguage, IngestionOcrSettings } from '../../types/index.ts';
 import { extractPdfTechnicalMetadata } from '../../utils/pdfMetadataExtractor.ts';
+import { detectLanguageFromPdfBuffer, getAutoOcrSettingsForLanguage } from '../../utils/languageDetector.ts';
+import { splitPdfByPageRange } from '../../utils/pdfSplitter.ts';
+import { extractEmbeddedPdfImages, injectEmbeddedImagesIntoHtml } from '../../utils/pdfImageExtractor.ts';
+import { PdfMetadataCard } from './PdfMetadataCard.tsx';
+import { IngestionOcrPanel } from './IngestionOcrPanel.tsx';
 
 // ===== START NEW CODE: SINGLE PDF & MULTI-FILE UPLOAD OPTIONS =====
 
@@ -143,6 +151,83 @@ const SAMPLE_DOCS = [
       </table>
     </div>`,
   },
+  {
+    id: 'sample_invoice_vendor',
+    title: 'Invoice_INV_2026_0982.pdf',
+    type: 'Commercial Tax Invoice & Itemized Billing',
+    size: 195 * 1024,
+    pages: 1,
+    sampleContent: `<div style="font-family: Arial, sans-serif; color: #111; line-height: 1.5;">
+      <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 16px;">
+        <div>
+          <h1 style="font-size: 24pt; font-weight: 900; margin: 0; color: #111;">INVOICE</h1>
+          <p style="margin: 4px 0 0; color: #555; font-size: 10pt;">Invoice #: <strong>INV-2026-0982</strong></p>
+          <p style="margin: 2px 0 0; color: #555; font-size: 10pt;">Issue Date: <strong>September 19, 2026</strong></p>
+          <p style="margin: 2px 0 0; color: #555; font-size: 10pt;">Due Date: <strong>Net 30 Days</strong></p>
+        </div>
+        <div style="text-align: right;">
+          <h3 style="margin: 0; font-size: 14pt; color: #0f172a;">CYBER CORP LLC</h3>
+          <p style="margin: 4px 0 0; color: #555; font-size: 9.5pt;">Billing &amp; Tax ID: US-94827104</p>
+          <p style="margin: 2px 0 0; color: #555; font-size: 9.5pt;">accounts@cybercorp.io</p>
+        </div>
+      </div>
+      <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 10pt;">
+        <thead>
+          <tr style="background-color: #f1f5f9; border-bottom: 2px solid #cbd5e1;">
+            <th style="padding: 10px; text-align: left;">Line Item / Service Description</th>
+            <th style="padding: 10px; text-align: center;">Qty</th>
+            <th style="padding: 10px; text-align: right;">Unit Price</th>
+            <th style="padding: 10px; text-align: right;">Total Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;">Cloud Compute Clusters (Sub-15ms Nodes)</td>
+            <td style="padding: 10px; text-align: center; border-bottom: 1px solid #e2e8f0;">4</td>
+            <td style="padding: 10px; text-align: right; border-bottom: 1px solid #e2e8f0;">$ 850.00</td>
+            <td style="padding: 10px; text-align: right; border-bottom: 1px solid #e2e8f0;">$ 3,400.00</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;">Google Docs API Pipeline Integration</td>
+            <td style="padding: 10px; text-align: center; border-bottom: 1px solid #e2e8f0;">1</td>
+            <td style="padding: 10px; text-align: right; border-bottom: 1px solid #e2e8f0;">$ 1,250.00</td>
+            <td style="padding: 10px; text-align: right; border-bottom: 1px solid #e2e8f0;">$ 1,250.00</td>
+          </tr>
+          <tr style="font-weight: bold; background-color: #f8fafc; border-top: 2px solid #0f172a;">
+            <td colspan="3" style="padding: 12px; text-align: right;">Total Amount Due:</td>
+            <td style="padding: 12px; text-align: right; color: #059669; font-size: 12pt;">$ 4,650.00</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`,
+  },
+  {
+    id: 'sample_contract_msa',
+    title: 'Master_Services_Agreement_Contract.pdf',
+    type: 'Legal Master Services Agreement & Terms',
+    size: 340 * 1024,
+    pages: 2,
+    sampleContent: `<div style="font-family: 'Times New Roman', serif; color: #111; line-height: 1.6;">
+      <h1 style="font-size: 20pt; font-weight: bold; text-align: center; margin-bottom: 8px; text-transform: uppercase;">
+        MASTER SERVICES AGREEMENT
+      </h1>
+      <p style="text-align: center; font-style: italic; font-size: 11pt; margin-bottom: 24px;">
+        This Master Services Agreement ("Agreement") is executed on September 19, 2026.
+      </p>
+      <h3 style="font-size: 13pt; font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 2px;">
+        1. RECITALS &amp; ENGAGEMENT TERMS
+      </h3>
+      <p style="font-size: 11pt; text-align: justify; margin-bottom: 12px;">
+        WHEREAS, Client desires to retain Contractor to perform enterprise automated document conversion and Google Docs synchronization services, and Contractor agrees to perform such services pursuant to the terms and mutual covenants set forth herein.
+      </p>
+      <h3 style="font-size: 13pt; font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 2px; margin-top: 18px;">
+        2. CONFIDENTIALITY AND INTELLECTUAL PROPERTY
+      </h3>
+      <p style="font-size: 11pt; text-align: justify; margin-bottom: 12px;">
+        Both Parties hereby agree that all proprietary algorithms, PDF parsing schemas, and converted outputs remain the exclusive intellectual property of the respective originating party.
+      </p>
+    </div>`,
+  },
 ];
 
 export const PdfUploader: React.FC = () => {
@@ -163,6 +248,11 @@ export const PdfUploader: React.FC = () => {
     queue,
     isBulkProcessing,
     activeQueueId,
+    geminiModelPreference,
+    detectedLanguage,
+    ingestionOcrSettings,
+    setIngestionOcrSettings,
+    autoConfigureOcrForLanguage,
     addToQueue,
     removeFromQueue,
     clearQueue,
@@ -179,10 +269,14 @@ export const PdfUploader: React.FC = () => {
     file: File;
     base64Data: string;
     metadata: PdfTechnicalMetadata;
+    detectedLanguage: DetectedLanguage;
+    ocrSettings: IngestionOcrSettings;
+    pageRange: string;
   }
 
   const [stagedFile, setStagedFile] = useState<StagedPdfItem | null>(null);
   const [isExtractingMetadata, setIsExtractingMetadata] = useState(false);
+  const [expandedMetadataId, setExpandedMetadataId] = useState<string | null>(null);
 
   // ==========================================
   // SINGLE PDF CONVERSION HANDLERS
@@ -195,7 +289,7 @@ export const PdfUploader: React.FC = () => {
 
     setSingleError(null);
     setIsExtractingMetadata(true);
-    setSingleStatusMsg(`INSPECTING_PDF_HEADER_AND_SECURITY: ${file.name}`);
+    setSingleStatusMsg(`INSPECTING_PDF_HEADER_AND_LANGUAGE: ${file.name}`);
     cyberAudio.playScanBeep(1);
 
     try {
@@ -210,11 +304,19 @@ export const PdfUploader: React.FC = () => {
       // 2. Extract deep technical PDF metadata using pdf-lib parser
       const metadata = await extractPdfTechnicalMetadata(file);
 
-      // 3. Stage the file for user verification before confirming conversion
+      // 3. Auto-detect document language and compute specialized OCR settings
+      const detectedLang = detectLanguageFromPdfBuffer(base64Data, metadata);
+      const autoOcr = getAutoOcrSettingsForLanguage(detectedLang);
+      autoConfigureOcrForLanguage(detectedLang);
+
+      // 4. Stage the file for user verification before confirming conversion
       setStagedFile({
         file,
         base64Data,
         metadata,
+        detectedLanguage: detectedLang,
+        ocrSettings: autoOcr,
+        pageRange: `1-${metadata.pageCount || 1}`,
       });
 
       cyberAudio.playSuccessChime();
@@ -236,37 +338,59 @@ export const PdfUploader: React.FC = () => {
       return;
     }
 
-    const { file, base64Data, metadata } = stagedFile;
+    const { file, base64Data, metadata, ocrSettings, pageRange } = stagedFile;
     setSingleError(null);
     setIsSingleConverting(true);
     setSingleProgress(10);
-    setSingleStatusMsg(`INITIALIZING_BYTE_STREAM: ${file.name}`);
+    setSingleStatusMsg(`SPLITTING_PAGES_AND_EXTRACTING_IMAGES: ${file.name}`);
     cyberAudio.playScanBeep(1);
 
     try {
+      // 1. Process Split PDF Page Selection
+      let processBase64 = base64Data;
+      let effectivePageCount = metadata.pageCount || 1;
+
+      if (pageRange && pageRange.trim() && pageRange.toLowerCase() !== 'all') {
+        const splitResult = await splitPdfByPageRange(base64Data, pageRange);
+        processBase64 = splitResult.splitBase64;
+        effectivePageCount = splitResult.splitPageCount;
+      }
+
+      // 2. Extract Embedded PDF Images (JPEG, PNG) to preserve in Google Doc
+      setSingleStatusMsg(`CARRIER_ENGINE: EXTRACTING EMBEDDED IMAGES & FIGURES...`);
+      const extractedImages = await extractEmbeddedPdfImages(processBase64);
+
       // Mount active PDF in store
       const docId = 'pdf_' + Date.now();
       const pdfMetadata = {
         id: docId,
         name: file.name,
         size: file.size,
-        base64Data,
-        pageCount: metadata.pageCount || 1,
+        base64Data: processBase64,
+        pageCount: effectivePageCount,
         uploadedAt: Date.now(),
         technicalMetadata: metadata,
       };
       setPdf(pdfMetadata);
 
-      // Call conversion pipeline with real-time telemetry
+      // 3. Call conversion pipeline with real-time telemetry and OCR settings
+      const activeOcr = ocrSettings || ingestionOcrSettings;
       const resultData = await convertPdfToGoogleDoc({
-        pdfBase64: base64Data,
+        pdfBase64: processBase64,
         filename: file.name,
+        modelPreference: geminiModelPreference,
+        ocrSettings: activeOcr,
         onProgress: (percent, msg) => {
           setSingleProgress(percent);
           setSingleStatusMsg(msg);
           cyberAudio.playScanBeep(Math.floor(percent / 25));
         },
       });
+
+      // 4. Inject Extracted Embedded Images directly into Reconstructed HTML
+      if (extractedImages.length > 0) {
+        resultData.htmlContent = injectEmbeddedImagesIntoHtml(resultData.htmlContent, extractedImages);
+      }
 
       // Save to persistent archive
       addToHistory({
@@ -275,14 +399,14 @@ export const PdfUploader: React.FC = () => {
         originalFileName: file.name,
         fileSize: file.size,
         timestamp: Date.now(),
-        pageCount: resultData.stats.pages || metadata.pageCount || 1,
+        pageCount: effectivePageCount,
         tablesCount: resultData.detectedElements.tablesCount,
         headingsCount: resultData.detectedElements.headingsCount,
         htmlContent: resultData.htmlContent,
         markdownContent: resultData.markdownContent,
         fidelityScore: resultData.stats.fidelityScore,
         status: 'success',
-        base64Data,
+        base64Data: processBase64,
         technicalMetadata: metadata,
       });
 
@@ -406,15 +530,27 @@ export const PdfUploader: React.FC = () => {
           reader.readAsDataURL(file);
         });
 
+        // Extract technical metadata immediately upon selection
+        const metadata = await extractPdfTechnicalMetadata(file);
+
+        // Auto-detect language and compute OCR profile for this specific document
+        const detectedLang = detectLanguageFromPdfBuffer(base64Data, metadata);
+        const itemOcr = getAutoOcrSettingsForLanguage(detectedLang);
+
         newQueueItems.push({
           id: 'queue_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
           name: file.name,
           size: file.size,
           base64Data,
-          pageCount: 1,
+          pageCount: metadata.pageCount || 1,
           status: 'queued',
           progress: 0,
           addedAt: Date.now(),
+          technicalMetadata: metadata,
+          pdfVersion: metadata.pdfVersion,
+          author: metadata.author,
+          detectedLanguage: detectedLang,
+          ocrSettings: itemOcr,
         });
       } catch (err) {
         console.error('Failed to read PDF payload:', file.name, err);
@@ -426,6 +562,126 @@ export const PdfUploader: React.FC = () => {
     if (newQueueItems.length > 0) {
       addToQueue(newQueueItems);
       cyberAudio.playScanBeep(3);
+    }
+  };
+
+  const convertSingleQueueItem = async (item: QueueItem) => {
+    const allowed = incrementConversionCount();
+    if (!allowed) {
+      updateQueueItem(item.id, {
+        status: 'error',
+        statusMessage: 'DAILY_QUOTA_EXCEEDED',
+        errorMessage: 'Daily limit reached. Upgrade to Pro for unlimited conversions.',
+      });
+      return;
+    }
+
+    setActiveQueueId(item.id);
+    updateQueueItem(item.id, {
+      status: 'processing',
+      progress: 10,
+      statusMessage: `CONVERTING: ${item.name}`,
+    });
+
+    try {
+      let resultData;
+      if (item.samplePrecomputed) {
+        await new Promise((r) => setTimeout(r, 200));
+        updateQueueItem(item.id, { progress: 50, statusMessage: 'RECONSTRUCTING_GEOMETRY' });
+        await new Promise((r) => setTimeout(r, 250));
+        updateQueueItem(item.id, { progress: 85, statusMessage: 'SYNTHESIZING_GOOGLE_DOCS_SEMANTICS' });
+        await new Promise((r) => setTimeout(r, 150));
+
+        resultData = {
+          documentTitle: item.name.replace(/\.[^/.]+$/, ''),
+          htmlContent: item.samplePrecomputed,
+          markdownContent: `# ${item.name}\n\nConverted document layout.`,
+          stats: {
+            pages: item.pageCount,
+            wordCount: 380,
+            characterCount: 2450,
+            fidelityScore: 99.4,
+          },
+          detectedElements: {
+            headingsCount: 3,
+            tablesCount: 1,
+            bulletListsCount: 3,
+            fontsDetected: ['Arial', 'Georgia', 'JetBrains Mono'],
+            colorPalette: ['#111827', '#059669', '#f3f4f6', '#1a73e8'],
+          },
+          conversionTimeMs: 800,
+        };
+      } else {
+        let activeBase64 = item.base64Data;
+        if (item.pageRange && item.pageRange.trim() && item.pageRange.toLowerCase() !== 'all') {
+          const split = await splitPdfByPageRange(item.base64Data, item.pageRange);
+          activeBase64 = split.splitBase64;
+        }
+
+        const extractedImages = await extractEmbeddedPdfImages(activeBase64);
+
+        resultData = await convertPdfToGoogleDoc({
+          pdfBase64: activeBase64,
+          filename: item.name,
+          modelPreference: geminiModelPreference,
+          ocrSettings: item.ocrSettings || ingestionOcrSettings,
+          onProgress: (percent, msg) => {
+            updateQueueItem(item.id, { progress: percent, statusMessage: msg });
+            cyberAudio.playScanBeep(Math.floor(percent / 25));
+          },
+        });
+
+        if (extractedImages.length > 0) {
+          resultData.htmlContent = injectEmbeddedImagesIntoHtml(resultData.htmlContent, extractedImages);
+        }
+      }
+
+      updateQueueItem(item.id, {
+        status: 'completed',
+        progress: 100,
+        statusMessage: 'RECONSTRUCTION_COMPLETE',
+        result: resultData,
+      });
+
+      addToHistory({
+        id: item.id,
+        title: resultData.documentTitle,
+        originalFileName: item.name,
+        fileSize: item.size,
+        timestamp: Date.now(),
+        pageCount: resultData.stats.pages || 1,
+        tablesCount: resultData.detectedElements.tablesCount,
+        headingsCount: resultData.detectedElements.headingsCount,
+        htmlContent: resultData.htmlContent,
+        markdownContent: resultData.markdownContent,
+        fidelityScore: resultData.stats.fidelityScore,
+        status: 'success',
+        base64Data: item.base64Data,
+        technicalMetadata: item.technicalMetadata,
+      });
+
+      cyberAudio.playSuccessChime();
+      setPdf({
+        id: item.id,
+        name: item.name,
+        size: item.size,
+        base64Data: item.base64Data,
+        pageCount: item.pageCount,
+        uploadedAt: Date.now(),
+        technicalMetadata: item.technicalMetadata,
+      });
+      setResult(resultData);
+    } catch (err: any) {
+      console.error('Queue item conversion error:', err);
+      cyberAudio.playAlertBuzz();
+      updateQueueItem(item.id, {
+        status: 'error',
+        progress: 0,
+        statusMessage: 'CONVERSION_FAULT',
+        errorMessage: err.message || 'Conversion failed',
+      });
+    } finally {
+      setActiveQueueId(null);
     }
   };
 
@@ -515,6 +771,8 @@ export const PdfUploader: React.FC = () => {
           resultData = await convertPdfToGoogleDoc({
             pdfBase64: item.base64Data,
             filename: item.name,
+            modelPreference: geminiModelPreference,
+            ocrSettings: item.ocrSettings || ingestionOcrSettings,
             onProgress: (percent, msg) => {
               updateQueueItem(item.id, { progress: percent, statusMessage: msg });
               cyberAudio.playScanBeep(Math.floor(percent / 25));
@@ -597,7 +855,10 @@ export const PdfUploader: React.FC = () => {
     const files: File[] = e.dataTransfer.files ? (Array.from(e.dataTransfer.files) as File[]) : [];
     if (files.length === 0) return;
 
-    if (uploadMode === 'single') {
+    if (files.length > 1) {
+      setUploadMode('batch');
+      handleMultiFilesSelected(files);
+    } else if (uploadMode === 'single') {
       handleSingleFileSelected(files[0]);
     } else {
       handleMultiFilesSelected(files);
@@ -673,160 +934,111 @@ export const PdfUploader: React.FC = () => {
             </div>
           )}
 
-          {/* STAGED PDF TECHNICAL METADATA INSPECTION & PRE-CONVERSION PROTOCOL */}
+          {/* STAGED PDF TECHNICAL METADATA INSPECTION SUB-COMPONENT */}
           {stagedFile && !isSingleConverting && (
-            <div className="p-5 bg-[#09090C] border-2 border-[#FF003C] rounded space-y-4 font-mono shadow-[0_0_25px_rgba(255,0,60,0.2)]">
-              {/* Panel Header */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-800">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-[#FF003C]" />
-                  <div>
-                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                      TECHNICAL PDF METADATA INSPECTION
-                    </h4>
-                    <p className="text-[11px] text-neutral-400">
-                      Pre-conversion verification matrix &bull; Confirm before neural reconstruction
-                    </p>
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-500/50 bg-emerald-950/40 text-emerald-400 uppercase">
-                  READY FOR CONVERSION
-                </span>
-              </div>
+            <div className="space-y-3">
+              <PdfMetadataCard
+                fileName={stagedFile.file.name}
+                fileSize={stagedFile.file.size}
+                metadata={stagedFile.metadata}
+                onConfirm={executeConfirmedConversion}
+                onCancel={cancelStagedFile}
+                isProcessing={isSingleConverting}
+              />
 
-              {/* Metadata Matrix Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                {/* 1. Document Identity */}
-                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1">
-                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-[#FF003C]" />
-                    FILE IDENTITY
-                  </span>
-                  <div className="text-white font-bold truncate" title={stagedFile.file.name}>
-                    {stagedFile.file.name}
+              {/* SPLIT PDF & PAGE RANGE SELECTION CONTROL PANEL */}
+              <div className="p-4 bg-[#0A0A0E] border border-neutral-800 hover:border-[#FF003C]/50 rounded-lg space-y-3 font-mono text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-[#FF003C]" />
+                    <span className="font-bold text-white tracking-wider">SPLIT PDF // SELECT PAGE RANGES</span>
                   </div>
-                  <div className="text-[11px] text-neutral-400 flex items-center gap-2">
-                    <span>{formatBytes(stagedFile.file.size)}</span>
-                    <span>&bull;</span>
-                    <span className="text-emerald-400">{stagedFile.metadata.pageCount} PAGE(S)</span>
-                  </div>
+                  <CyberBadge label={`TOTAL: ${stagedFile.metadata.pageCount || 1} PAGES`} variant="purple" />
                 </div>
 
-                {/* 2. Creator Tool & Producer */}
-                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1">
-                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
-                    <FileCode className="w-3.5 h-3.5 text-[#E056FD]" />
-                    CREATOR SUITE / TOOL
-                  </span>
-                  <div className="text-white font-bold truncate" title={stagedFile.metadata.creatorTool || 'Unspecified'}>
-                    {stagedFile.metadata.creatorTool || 'Unspecified / Standard Tool'}
-                  </div>
-                  <div className="text-[10px] text-neutral-500 truncate" title={stagedFile.metadata.producer || 'Default Engine'}>
-                    PRODUCER: {stagedFile.metadata.producer || 'Standard PDF Engine'}
-                  </div>
-                </div>
+                <p className="text-[11px] text-neutral-400">
+                  Specify exact page numbers or ranges to split and convert (e.g. <code className="text-emerald-400 font-bold bg-neutral-900 px-1 py-0.5 rounded">1-3, 5, 8-10</code>).
+                </p>
 
-                {/* 3. Creation Date */}
-                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1">
-                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-neutral-400" />
-                    CREATION TIMESTAMP
-                  </span>
-                  <div className="text-white font-bold text-[11px]">
-                    {stagedFile.metadata.creationDate 
-                      ? new Date(stagedFile.metadata.creationDate).toLocaleString() 
-                      : 'NOT STAMPED IN PDF HEADER'
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    type="text"
+                    value={stagedFile.pageRange}
+                    onChange={(e) =>
+                      setStagedFile({
+                        ...stagedFile,
+                        pageRange: e.target.value,
+                      })
                     }
-                  </div>
-                  <div className="text-[10px] text-neutral-500">
-                    MODIFIED: {stagedFile.metadata.modificationDate 
-                      ? new Date(stagedFile.metadata.modificationDate).toLocaleDateString() 
-                      : 'Unchanged'}
-                  </div>
-                </div>
+                    placeholder={`e.g. 1-${stagedFile.metadata.pageCount || 1} or 1, 3, 5`}
+                    className="flex-1 bg-black border border-neutral-700 focus:border-[#FF003C] text-white px-3 py-1.5 rounded text-xs outline-none font-mono"
+                  />
 
-                {/* 4. PDF Specification & Format */}
-                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1">
-                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
-                    <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                    SPECIFICATION VERSION
-                  </span>
-                  <div className="text-white font-bold text-sm">
-                    PDF v{stagedFile.metadata.pdfVersion || '1.7'}
-                  </div>
-                  <div className="text-[10px] text-neutral-500">
-                    ISO 32000 STANDARD COMPLIANT
-                  </div>
-                </div>
+                  {/* Preset Buttons */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        cyberAudio.playCyberClick();
+                        setStagedFile({ ...stagedFile, pageRange: `1-${stagedFile.metadata.pageCount || 1}` });
+                      }}
+                      className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${
+                        stagedFile.pageRange === `1-${stagedFile.metadata.pageCount || 1}`
+                          ? 'bg-[#FF003C] text-white border-[#FF003C]'
+                          : 'bg-neutral-900 border-neutral-700 text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      ALL PAGES
+                    </button>
 
-                {/* 5. Security & Encryption Matrix */}
-                <div className="p-3 bg-black border border-neutral-800 rounded space-y-1 sm:col-span-2">
-                  <span className="text-[10px] text-neutral-500 font-bold uppercase flex items-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5 text-emerald-400" />
-                    SECURITY SETTINGS &amp; PERMISSIONS
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                      stagedFile.metadata.isEncrypted
-                        ? 'border-rose-500 bg-rose-950/40 text-rose-300'
-                        : 'border-emerald-500/50 bg-emerald-950/30 text-emerald-400'
-                    }`}>
-                      {stagedFile.metadata.isEncrypted ? 'ENCRYPTED' : 'UNENCRYPTED (CLEAR)'}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                      stagedFile.metadata.securitySettings.allowsPrinting
-                        ? 'border-neutral-800 bg-neutral-900 text-neutral-300'
-                        : 'border-rose-800 bg-rose-950/30 text-rose-400'
-                    }`}>
-                      {stagedFile.metadata.securitySettings.allowsPrinting ? 'PRINT: ALLOWED' : 'PRINT: RESTRICTED'}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                      stagedFile.metadata.securitySettings.allowsCopying
-                        ? 'border-neutral-800 bg-neutral-900 text-neutral-300'
-                        : 'border-rose-800 bg-rose-950/30 text-rose-400'
-                    }`}>
-                      {stagedFile.metadata.securitySettings.allowsCopying ? 'COPY/EXTRACT: ALLOWED' : 'COPY: RESTRICTED'}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                      stagedFile.metadata.securitySettings.allowsModifying
-                        ? 'border-neutral-800 bg-neutral-900 text-neutral-300'
-                        : 'border-neutral-800 bg-neutral-900 text-neutral-400'
-                    }`}>
-                      {stagedFile.metadata.securitySettings.allowsModifying ? 'MODIFY: PERMITTED' : 'MODIFY: READ-ONLY'}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        cyberAudio.playCyberClick();
+                        setStagedFile({ ...stagedFile, pageRange: `1-${Math.min(3, stagedFile.metadata.pageCount || 1)}` });
+                      }}
+                      className="px-2 py-1 rounded text-[10px] font-bold border bg-neutral-900 border-neutral-700 text-neutral-400 hover:text-white hover:border-[#FF003C]"
+                    >
+                      FIRST 3
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        cyberAudio.playCyberClick();
+                        setStagedFile({ ...stagedFile, pageRange: 'even' });
+                      }}
+                      className="px-2 py-1 rounded text-[10px] font-bold border bg-neutral-900 border-neutral-700 text-neutral-400 hover:text-white hover:border-[#FF003C]"
+                    >
+                      EVEN
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        cyberAudio.playCyberClick();
+                        setStagedFile({ ...stagedFile, pageRange: 'odd' });
+                      }}
+                      className="px-2 py-1 rounded text-[10px] font-bold border bg-neutral-900 border-neutral-700 text-neutral-400 hover:text-white hover:border-[#FF003C]"
+                    >
+                      ODD
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Confirmation Action Buttons */}
-              <div className="pt-3 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="text-[11px] text-neutral-400 flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5 text-[#FF003C]" />
-                  <span>Review technical metadata above and confirm conversion.</span>
-                </div>
-
-                <div className="flex items-center gap-2.5 w-full sm:w-auto">
-                  <CyberButton
-                    variant="outline"
-                    size="sm"
-                    onClick={cancelStagedFile}
-                    icon={<X className="w-3.5 h-3.5" />}
-                  >
-                    DISCARD / CANCEL
-                  </CyberButton>
-
-                  <CyberButton
-                    variant="primary"
-                    size="md"
-                    onClick={executeConfirmedConversion}
-                    icon={<Zap className="w-4 h-4" />}
-                    glow
-                    className="font-bold shadow-[0_0_15px_rgba(255,0,60,0.4)]"
-                  >
-                    CONFIRM &amp; CONSTRUCT GOOGLE DOC
-                  </CyberButton>
-                </div>
-              </div>
+              {/* AUTO-DETECTED DOCUMENT LANGUAGE & BACKEND OCR SETTINGS PANEL */}
+              <IngestionOcrPanel
+                detectedLanguage={stagedFile.detectedLanguage}
+                ocrSettings={stagedFile.ocrSettings}
+                onChange={(updatedSettings) => {
+                  setStagedFile({
+                    ...stagedFile,
+                    ocrSettings: updatedSettings,
+                  });
+                  setIngestionOcrSettings(updatedSettings);
+                }}
+              />
             </div>
           )}
 
@@ -1188,97 +1400,226 @@ export const PdfUploader: React.FC = () => {
               )}
 
               {/* Queue Items Table / List */}
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
                 {queue.map((item, idx) => {
                   const isItemActive = item.id === activeQueueId;
+                  const isExpanded = expandedMetadataId === item.id;
 
                   return (
                     <div
                       key={item.id}
-                      className={`p-2.5 rounded border transition-all flex items-center justify-between gap-3 text-xs ${
+                      className={`p-3 rounded border transition-all space-y-2 text-xs font-mono ${
                         isItemActive
-                          ? 'border-[#FF003C] bg-[#FF003C]/10 shadow-[0_0_10px_rgba(255,0,60,0.15)]'
+                          ? 'border-[#FF003C] bg-[#FF003C]/10 shadow-[0_0_15px_rgba(255,0,60,0.2)]'
                           : item.status === 'completed'
-                          ? 'border-emerald-900/50 bg-neutral-950/80 hover:border-emerald-700/50'
+                          ? 'border-emerald-900/50 bg-neutral-950/90 hover:border-emerald-700/60'
                           : item.status === 'error'
                           ? 'border-rose-900/50 bg-rose-950/20'
                           : 'border-neutral-800/80 bg-neutral-950 hover:border-neutral-700'
                       }`}
                     >
-                      <div className="flex items-center gap-3 overflow-hidden min-w-0">
-                        <span className="text-neutral-500 text-[11px] w-5 shrink-0 font-mono">
-                          #{idx + 1}
-                        </span>
-                        <FileText
-                          className={`w-4 h-4 shrink-0 ${
-                            item.status === 'completed'
-                              ? 'text-emerald-400'
-                              : item.status === 'processing'
-                              ? 'text-[#FF003C]'
-                              : 'text-neutral-400'
-                          }`}
-                        />
-                        <div className="overflow-hidden truncate">
-                          <div className="font-bold text-white truncate">{item.name}</div>
-                          <div className="text-[10px] text-neutral-500 flex items-center gap-2">
-                            <span>{formatBytes(item.size)}</span>
-                            <span>&bull;</span>
-                            <span>{item.pageCount} Page(s)</span>
-                            {item.errorMessage && (
-                              <>
-                                <span>&bull;</span>
-                                <span className="text-rose-400 truncate">{item.errorMessage}</span>
-                              </>
-                            )}
+                      {/* Top Row: File Info & Controls */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
+                          <span className="text-neutral-500 text-[11px] w-6 shrink-0 font-mono">
+                            #{idx + 1}
+                          </span>
+                          <FileText
+                            className={`w-4 h-4 shrink-0 ${
+                              item.status === 'completed'
+                                ? 'text-emerald-400'
+                                : item.status === 'processing'
+                                ? 'text-[#FF003C]'
+                                : 'text-neutral-400'
+                            }`}
+                          />
+                          <div className="overflow-hidden truncate">
+                            <div className="font-bold text-white truncate text-xs">{item.name}</div>
+                            <div className="text-[10px] text-neutral-400 flex flex-wrap items-center gap-1.5 pt-0.5">
+                              <span>{formatBytes(item.size)}</span>
+                              <span>&bull;</span>
+                              <span className="text-cyan-400">{item.pageCount} Page(s)</span>
+                              {item.pdfVersion && (
+                                <>
+                                  <span>&bull;</span>
+                                  <span className="px-1.5 py-0.2 rounded bg-neutral-900 border border-neutral-800 text-[9px] text-neutral-300">
+                                    PDF v{item.pdfVersion}
+                                  </span>
+                                </>
+                              )}
+                              {item.detectedLanguage && (
+                                <>
+                                  <span>&bull;</span>
+                                  <span className="px-1.5 py-0.2 rounded bg-purple-950/40 border border-purple-800 text-[9px] text-[#E056FD] font-bold flex items-center gap-1">
+                                    <span>{item.detectedLanguage.flag}</span>
+                                    <span>{item.detectedLanguage.code.toUpperCase()}</span>
+                                    <span>&bull;</span>
+                                    <span>{item.ocrSettings?.scriptType.toUpperCase() || 'OCR'}</span>
+                                  </span>
+                                </>
+                              )}
+                              {item.author && (
+                                <>
+                                  <span>&bull;</span>
+                                  <span className="text-neutral-500 truncate max-w-[120px]">
+                                    {item.author}
+                                  </span>
+                                </>
+                              )}
+                              {item.errorMessage && (
+                                <>
+                                  <span>&bull;</span>
+                                  <span className="text-rose-400 truncate">{item.errorMessage}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
+                        </div>
+
+                        {/* Status Badges & Quick Action Controls */}
+                        <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                          {/* Metadata inspection toggle */}
+                          {item.technicalMetadata && (
+                            <button
+                              onClick={() => setExpandedMetadataId(isExpanded ? null : item.id)}
+                              className={`px-2 py-1 rounded text-[10px] border flex items-center gap-1 transition-all ${
+                                isExpanded
+                                  ? 'bg-[#E056FD]/20 border-[#E056FD] text-[#E056FD]'
+                                  : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+                              }`}
+                              title="Inspect technical metadata"
+                            >
+                              <Info className="w-3 h-3" />
+                              <span>META</span>
+                              {isExpanded ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                            </button>
+                          )}
+
+                          {item.status === 'queued' && (
+                            <>
+                              <span className="px-2 py-0.5 rounded bg-neutral-900 text-neutral-400 text-[10px] border border-neutral-700">
+                                QUEUED
+                              </span>
+                              {!isBulkProcessing && (
+                                <CyberButton
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => convertSingleQueueItem(item)}
+                                  icon={<Zap className="w-3 h-3" />}
+                                  className="!py-0.5 !px-2 !text-[10px] border-[#FF003C]/50 text-[#FF003C] hover:bg-[#FF003C]/20"
+                                >
+                                  CONVERT
+                                </CyberButton>
+                              )}
+                            </>
+                          )}
+
+                          {item.status === 'processing' && (
+                            <span className="px-2 py-0.5 rounded bg-[#FF003C]/20 text-[#FF003C] text-[10px] border border-[#FF003C]/40 font-bold flex items-center gap-1.5">
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              {item.progress}%
+                            </span>
+                          )}
+
+                          {item.status === 'completed' && (
+                            <>
+                              <span className="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] border border-emerald-500/40 flex items-center gap-1 font-bold">
+                                <CheckCircle2 className="w-3 h-3" /> DONE
+                              </span>
+                              <CyberButton
+                                variant="secondary"
+                                size="sm"
+                                icon={<Eye className="w-3 h-3" />}
+                                onClick={() => viewCompletedItem(item)}
+                                className="!py-0.5 !px-2 !text-[10px]"
+                              >
+                                VIEW
+                              </CyberButton>
+                            </>
+                          )}
+
+                          {item.status === 'error' && (
+                            <>
+                              <span className="px-2 py-0.5 rounded bg-rose-950/60 text-rose-400 text-[10px] border border-rose-500/40 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" /> FAILED
+                              </span>
+                              {!isBulkProcessing && (
+                                <CyberButton
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => convertSingleQueueItem(item)}
+                                  icon={<RefreshCw className="w-3 h-3" />}
+                                  className="!py-0.5 !px-2 !text-[10px]"
+                                >
+                                  RETRY
+                                </CyberButton>
+                              )}
+                            </>
+                          )}
+
+                          {!isBulkProcessing && !isItemActive && (
+                            <button
+                              onClick={() => removeFromQueue(item.id)}
+                              className="p-1 text-neutral-500 hover:text-rose-400 rounded transition-colors ml-1"
+                              title="Remove from queue"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      {/* Status Badges & Quick Action */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        {item.status === 'queued' && (
-                          <span className="px-2 py-0.5 rounded bg-neutral-900 text-neutral-400 text-[10px] border border-neutral-700">
-                            QUEUED
+                      {/* Per-Document Progress Indicator */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center text-[10px] text-neutral-400">
+                          <span className="truncate">
+                            {item.status === 'processing'
+                              ? item.statusMessage || 'RECONSTRUCTING DOCUMENT...'
+                              : item.status === 'completed'
+                              ? 'CONVERSION COMPLETE'
+                              : item.status === 'error'
+                              ? 'CONVERSION FAILED'
+                              : 'READY IN QUEUE'}
                           </span>
-                        )}
-                        {item.status === 'processing' && (
-                          <span className="px-2 py-0.5 rounded bg-[#FF003C]/20 text-[#FF003C] text-[10px] border border-[#FF003C]/40 font-bold flex items-center gap-1.5">
-                            <RefreshCw className="w-3 h-3 animate-spin" />
-                            {item.progress}%
+                          <span className="font-bold shrink-0">
+                            {item.status === 'completed' ? '100%' : `${item.progress}%`}
                           </span>
-                        )}
-                        {item.status === 'completed' && (
-                          <>
-                            <span className="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] border border-emerald-500/40 flex items-center gap-1 font-bold">
-                              <CheckCircle2 className="w-3 h-3" /> DONE
-                            </span>
-                            <CyberButton
-                              variant="secondary"
-                              size="sm"
-                              icon={<Eye className="w-3 h-3" />}
-                              onClick={() => viewCompletedItem(item)}
-                              className="!py-1 !px-2 !text-[10px]"
-                            >
-                              VIEW
-                            </CyberButton>
-                          </>
-                        )}
-                        {item.status === 'error' && (
-                          <span className="px-2 py-0.5 rounded bg-rose-950/60 text-rose-400 text-[10px] border border-rose-500/40 flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" /> FAILED
-                          </span>
-                        )}
-
-                        {!isBulkProcessing && (
-                          <button
-                            onClick={() => removeFromQueue(item.id)}
-                            className="p-1 text-neutral-500 hover:text-rose-400 rounded transition-colors"
-                            title="Remove from queue"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        </div>
+                        <div className="w-full h-1.5 bg-neutral-900 rounded overflow-hidden border border-neutral-800">
+                          <div
+                            className={`h-full transition-all duration-200 ${
+                              item.status === 'completed'
+                                ? 'bg-emerald-500'
+                                : item.status === 'error'
+                                ? 'bg-rose-500'
+                                : item.status === 'processing'
+                                ? 'bg-gradient-to-r from-[#FF003C] to-[#E056FD] animate-pulse'
+                                : 'bg-neutral-800'
+                            }`}
+                            style={{
+                              width: `${item.status === 'completed' ? 100 : item.progress}%`,
+                            }}
+                          />
+                        </div>
                       </div>
+
+                      {/* Expanded Technical Metadata Card Sub-Component for Queued Document */}
+                      {isExpanded && item.technicalMetadata && (
+                        <div className="pt-2 border-t border-neutral-800">
+                          <PdfMetadataCard
+                            fileName={item.name}
+                            fileSize={item.size}
+                            metadata={item.technicalMetadata}
+                            compact
+                            onConfirm={() => {
+                              setExpandedMetadataId(null);
+                              convertSingleQueueItem(item);
+                            }}
+                            onCancel={() => setExpandedMetadataId(null)}
+                            isProcessing={item.status === 'processing'}
+                          />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
